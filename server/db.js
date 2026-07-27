@@ -137,7 +137,7 @@ function initDb() {
         )
       `);
 
-      // Check and seed default admin user if not exists
+      // Check and seed/ensure default admin user exists
       db.get(`SELECT * FROM users WHERE email = 'kpnsclub@gmail.com'`, [], (err, row) => {
         if (err) {
           console.error('Error checking admin user:', err);
@@ -150,6 +150,15 @@ function initDb() {
             (err2) => {
               if (err2) console.error('Error creating default admin:', err2);
               else console.log('Default admin user created: kpnsclub@gmail.com / admin123');
+            }
+          );
+        } else {
+          // Always enforce default fixed credentials and admin role
+          db.run(
+            `UPDATE users SET name = 'KPNS Admin', password = 'admin123', role = 'admin' WHERE email = 'kpnsclub@gmail.com'`,
+            (err2) => {
+              if (err2) console.error('Error updating default admin:', err2);
+              else console.log('Default admin user verified: kpnsclub@gmail.com / admin123 (Role: admin)');
             }
           );
         }

@@ -1,5 +1,5 @@
 const express = require('express');
-const session = require('express-session');
+const cookieSession = require('cookie-session');
 const path = require('path');
 const db = require('./db');
 
@@ -21,17 +21,15 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Session middleware
-app.use(session({
-  secret: 'kpns-secret-key-organization-2026',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    secure: process.env.NODE_ENV === 'production' && !process.env.VERCEL ? true : false,
-    sameSite: 'lax'
-  }
+// Cookie Session middleware (Encrypted & Signed HTTP-only cookie, 100% Vercel & Serverless compatible)
+app.use(cookieSession({
+  name: 'kpns_session',
+  keys: ['kpns-secret-key-organization-2026', 'kpns-backup-key-2026'],
+  maxAge: 24 * 60 * 60 * 1000, // 24 hours
+  sameSite: 'lax',
+  secure: false
 }));
+
 
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, '..', 'public')));

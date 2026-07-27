@@ -30,7 +30,13 @@ router.post('/login', async (req, res) => {
 
 // Logout endpoint
 router.post('/logout', (req, res) => {
-  req.session.destroy();
+  if (req.session) {
+    if (typeof req.session.destroy === 'function') {
+      req.session.destroy();
+    } else {
+      req.session = null;
+    }
+  }
   res.json({ success: true });
 });
 

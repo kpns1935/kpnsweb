@@ -73,6 +73,161 @@ body {
 h1, h2, h3, h4, h5, h6 { font-family: 'Outfit', sans-serif; }
 
 /* ===================================
+   FULL-PAGE LOGIN SCREEN
+   =================================== */
+.login-page {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+  background-image: 
+    radial-gradient(circle at 20% 50%, rgba(37, 99, 235, 0.15), transparent 40%),
+    radial-gradient(circle at 80% 50%, rgba(245, 158, 11, 0.1), transparent 40%);
+  padding: 20px;
+  animation: loginFadeIn 0.4s ease;
+}
+
+.login-page.hidden {
+  display: none;
+}
+
+@keyframes loginFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.login-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  padding: 40px 32px;
+  box-shadow: 
+    0 25px 60px rgba(0, 0, 0, 0.5),
+    0 0 80px rgba(37, 99, 235, 0.08);
+  overflow: hidden;
+}
+
+.login-watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.login-watermark img {
+  width: 240px;
+  height: 240px;
+  object-fit: contain;
+  opacity: 0.04;
+  filter: grayscale(100%);
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 28px;
+  position: relative;
+  z-index: 1;
+}
+
+.login-logo {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  border-radius: 50%;
+  border: 2px solid var(--glass-border);
+  padding: 8px;
+  background: var(--bg-card);
+  margin-bottom: 12px;
+  box-shadow: 0 4px 20px rgba(37, 99, 235, 0.15);
+}
+
+.login-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+
+.login-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.login-card form {
+  position: relative;
+  z-index: 1;
+}
+
+.login-card .form-group {
+  margin-bottom: 18px;
+}
+
+.login-card .form-group label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.login-card .form-control {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.login-card .form-control:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+.login-footer {
+  text-align: center;
+  margin-top: 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.login-footer p {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 28px 20px;
+    border-radius: 16px;
+  }
+  .login-logo {
+    width: 64px;
+    height: 64px;
+  }
+  .login-title {
+    font-size: 1.2rem;
+  }
+}
+
+/* ===================================
    TOAST NOTIFICATION ENGINE
    =================================== */
 #toast-container {

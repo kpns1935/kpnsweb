@@ -22,6 +22,43 @@
   <!-- Navigation Overlay Backdrop for Mobile -->
   <div class="nav-overlay" id="navOverlay" onclick="closeMobileMenu()"></div>
 
+  <!-- FULL-PAGE LOGIN SCREEN -->
+  <div id="loginPage" class="login-page">
+    <div class="login-card">
+      <!-- Watermark Logo -->
+      <div class="login-watermark">
+        <img src="assets/logo.png" alt="KPNS Watermark">
+      </div>
+
+      <!-- Logo + Title -->
+      <div class="login-brand">
+        <img src="assets/logo.png" alt="KPNS Logo" class="login-logo">
+        <h1 class="login-title">KPNS ORGANIZATION</h1>
+        <p class="login-subtitle">Financial & Member Management System</p>
+      </div>
+
+      <!-- Login Form -->
+      <form id="loginForm" onsubmit="performLogin(event)">
+        <div class="form-group">
+          <label>Email Address *</label>
+          <input type="email" id="loginEmail" class="form-control" placeholder="Enter your email" required>
+        </div>
+        <div class="form-group">
+          <label>Password *</label>
+          <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" required>
+        </div>
+        <button type="submit" class="btn btn-emerald" style="width: 100%; padding: 12px; font-size: 1rem;">🔑 Sign In</button>
+      </form>
+
+      <div class="login-footer">
+        <p>© 2025 KPNS Organization. All rights reserved.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- APP CONTAINER (hidden until authenticated) -->
+  <div id="appContainer" style="display: none;">
+
   <!-- Header -->
   <header>
     <div class="brand">
@@ -832,48 +869,7 @@
     </div>
   </div>
 
-  <!-- LOGIN MODAL -->
-  <div class="modal-backdrop" id="loginModal">
-    <div class="modal" style="max-width: 440px; overflow: hidden;">
-      <div class="modal-header">
-        <h3>🔑 Login to KPNS System</h3>
-        <button class="close-btn" onclick="closeModal('loginModal')">&times;</button>
-      </div>
-      <div class="modal-body" style="position: relative;">
-
-        <!-- Watermark Logo -->
-        <div style="
-          position: absolute;
-          inset: 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          pointer-events: none;
-          z-index: 0;
-        ">
-          <img src="assets/logo.png" alt="KPNS Watermark"
-            style="width: 220px; height: 220px; object-fit: contain; opacity: 0.06; filter: grayscale(100%);">
-        </div>
-
-        <!-- Logo + Title above form -->
-        <div style="text-align: center; margin-bottom: 22px; position: relative; z-index: 1;">
-          <img src="assets/logo.png" alt="KPNS Logo" style="width: 70px; height: 70px; object-fit: contain; border-radius: 50%; border: 2px solid var(--border-color); padding: 6px; background: var(--bg-card); margin-bottom: 8px;">
-          <div style="font-size: 0.8rem; color: var(--text-secondary); letter-spacing: 1px;">KPNS ORGANIZATION</div>
-        </div>
-
-        <form id="loginForm" onsubmit="performLogin(event)" style="position: relative; z-index: 1;">
-          <div class="form-group">
-            <label>Email Address *</label>
-            <input type="email" id="loginEmail" class="form-control" placeholder="Enter your email" required>
-          </div>
-          <div class="form-group">
-            <label>Password *</label>
-            <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" required>
-          </div>
-          <button type="submit" class="btn" style="width: 100%;">Sign In</button>
-        </form>
-      </div>
-    </div>
+  <!-- Close appContainer -->
   </div>
 
   <!-- EXCEL BULK UPLOAD MODAL -->

@@ -80,18 +80,15 @@ document.addEventListener('DOMContentLoaded', () => {
   if (document.getElementById('passbookToDate')) document.getElementById('passbookToDate').value = today;
 
   checkAuthSession().then(() => {
-    if (window.location.search.includes('login=true') && !currentUser) {
-      openModal('loginModal');
-      window.history.replaceState({}, document.title, "/");
+    if (currentUser) {
+      // Load data after auth check to prevent race conditions
+      loadDashboardData();
+      loadMembersData();
+      loadEventsData();
+      loadTransactionsData();
+      loadExpensesData();
+      loadUsersData();
     }
-    
-    // Load data after auth check to prevent race conditions
-    loadDashboardData();
-    loadMembersData();
-    loadEventsData();
-    loadTransactionsData();
-    loadExpensesData();
-    loadUsersData();
   });
   
   // Initialize premium date picker globally
@@ -116,16 +113,14 @@ async function checkAuthSession() {
     const roleBadge = document.getElementById('userRoleBadge');
     const authBtn = document.getElementById('authBtn');
     
-    const mainApp = document.querySelector('main');
-    const navMenu = document.querySelector('nav');
-    const loginCloseBtn = document.querySelector('#loginModal .close-btn');
+    const appContainer = document.getElementById('appContainer');
+    const loginPage = document.getElementById('loginPage');
 
     if (data.authenticated) {
       currentUser = data.user;
       
-      if (mainApp) mainApp.style.display = 'block';
-      if (navMenu) navMenu.style.display = 'flex';
-      if (loginCloseBtn) loginCloseBtn.style.display = 'block';
+      if (loginPage) loginPage.classList.add('hidden');
+      if (appContainer) appContainer.style.display = 'block';
       
       if (roleBadge) roleBadge.innerText = data.user.role.toUpperCase();
       const nameDisplay = document.getElementById('userNameDisplay');
@@ -136,8 +131,8 @@ async function checkAuthSession() {
       }
       
       // Admin RBAC UI modifications
-      const usersTabBtn = document.querySelector('button[onclick="switchTab(\\\'users\\\')"]');
-      const restoreBtn = document.querySelector('button[onclick="openModal(\\\'importBackupModal\\\')"]');
+      const usersTabBtn = document.querySelector('button[onclick="switchTab(\'users\')"]');
+      const restoreBtn = document.querySelector('button[onclick="openModal(\'importBackupModal\')"]');
       const eraseBtn = document.getElementById('eraseAllBtn');
       if (data.user.role === 'admin') {
         if (usersTabBtn) usersTabBtn.style.display = 'block';
@@ -154,23 +149,17 @@ async function checkAuthSession() {
           switchTab('dashboard');
         }
       }
-      
-      closeModal('loginModal');
     } else {
       currentUser = null;
       
-      if (mainApp) mainApp.style.display = 'none';
-      if (navMenu) navMenu.style.display = 'none';
-      if (loginCloseBtn) loginCloseBtn.style.display = 'none';
+      if (appContainer) appContainer.style.display = 'none';
+      if (loginPage) loginPage.classList.remove('hidden');
       
       if (roleBadge) roleBadge.innerText = 'GUEST';
       if (authBtn) {
         authBtn.innerText = 'Login';
         authBtn.className = 'btn btn-emerald btn-sm';
       }
-      
-      // Force login modal open
-      openModal('loginModal');
     }
   } catch (err) {
     console.error('Session check error:', err);
@@ -181,7 +170,10 @@ function handleAuthButtonClick() {
   if (currentUser) {
     logout();
   } else {
-    openModal('loginModal');
+    const loginPage = document.getElementById('loginPage');
+    const appContainer = document.getElementById('appContainer');
+    if (loginPage) loginPage.classList.remove('hidden');
+    if (appContainer) appContainer.style.display = 'none';
   }
 }
 
@@ -201,15 +193,13 @@ async function performLogin(e) {
     if (data.success) {
       currentUser = data.user;
       showToast(`Welcome back, ${data.user.name}!`, 'success', 'Login Successful');
-      closeModal('loginModal');
-      checkAuthSession().then(() => {
-        loadDashboardData();
-        loadMembersData();
-        loadEventsData();
-        loadTransactionsData();
-        loadExpensesData();
-        loadUsersData();
-      });
+      await checkAuthSession();
+      loadDashboardData();
+      loadMembersData();
+      loadEventsData();
+      loadTransactionsData();
+      loadExpensesData();
+      loadUsersData();
     } else {
       showToast(data.error || 'Login failed', 'error', 'Authentication Error');
     }
@@ -220,8 +210,14 @@ async function performLogin(e) {
 
 async function logout() {
   await fetch('/api/auth/logout', { method: 'POST' });
-  window.location.href = '/?login=true';
+  currentUser = null;
+  const loginPage = document.getElementById('loginPage');
+  const appContainer = document.getElementById('appContainer');
+  if (appContainer) appContainer.style.display = 'none';
+  if (loginPage) loginPage.classList.remove('hidden');
+  showToast('You have been logged out.', 'info');
 }
+
 
 // EXCEL BULK UPLOAD & TEMPLATE GENERATION
 function downloadSampleExcelTemplate() {

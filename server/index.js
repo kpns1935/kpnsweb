@@ -54,10 +54,6 @@ app.use('/api/reports', requireAuth, reportRoutes);
 app.use('/api/backup', requireAuth, backupRoutes);
 
 
-// Fallback to index.html for single page application UI
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
-});
 
 function startServer(portToTry) {
   const server = app.listen(portToTry, () => {

@@ -93,6 +93,16 @@ router.put('/users/:id', async (req, res) => {
     const user = await db.queryOne('SELECT * FROM users WHERE id = ?', [userId]);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
+    // Protect the default KPNS Admin account (email and role locked)
+    if (user.email === 'kpnsclub@gmail.com') {
+      if (role && role !== 'admin') {
+        return res.status(400).json({ error: 'The default KPNS Admin account role must remain admin.' });
+      }
+      if (email && email.toLowerCase().trim() !== 'kpnsclub@gmail.com') {
+        return res.status(400).json({ error: 'The default KPNS Admin email cannot be changed.' });
+      }
+    }
+
     // Prevent changing own role away from admin (safety guard)
     if (parseInt(userId) === req.session.user.id && role && role !== 'admin' && req.session.user.role === 'admin') {
       return res.status(400).json({ error: 'You cannot change your own admin role.' });

@@ -1,0 +1,335 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../db');
+const { sendWhatsAppSlip } = require('../whatsapp');
+
+// List transactions (with filters for type, member, date range)
+router.get('/', async (req, res) => {
+  try {
+    const { type, member_id, from_date, to_date } = req.query;
+    let sql = `
+      SELECT 
+        t.*,
+        m.member_code,
+        m.name as member_name,
+        m.phone as member_phone,
+        e.title as event_title
+      FROM transactions t
+      LEFT JOIN members m ON t.member_id = m.id
+      LEFT JOIN events e ON t.event_id = e.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (type) {
+      sql += ` AND t.type = ?`;
+      params.push(type);
+    }
+    if (member_id) {
+      sql += ` AND t.member_id = ?`;
+      params.push(member_id);
+    }
+    if (from_date) {
+      sql += ` AND date(t.created_at) >= date(?)`;
+      params.push(from_date);
+    }
+    if (to_date) {
+      sql += ` AND date(t.created_at) <= date(?)`;
+      params.push(to_date);
+    }
+
+    sql += ` ORDER BY t.id DESC`;
+
+    const txs = await db.queryAll(sql, params);
+    
+    // Resolve event titles if event_id is present
+    for (let tx of txs) {
+      if (tx.event_id) {
+        const ids = String(tx.event_id).split(',').map(id => id.trim()).filter(Boolean);
+        if (ids.length > 0) {
+          const events = await db.queryAll(`SELECT title FROM events WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+          tx.event_title = events.map(ev => ev.title).join(', ');
+        }
+      }
+    }
+    
+    res.json(txs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get single transaction details
+router.get('/:id', async (req, res) => {
+  try {
+    const tx = await db.queryOne(`
+      SELECT 
+        t.*,
+        m.member_code,
+        m.name as member_name,
+        m.phone as member_phone,
+        m.email as member_email,
+        m.address as member_address,
+        e.title as event_title,
+        e.contribution_amount as event_contribution
+      FROM transactions t
+      LEFT JOIN members m ON t.member_id = m.id
+      LEFT JOIN events e ON t.event_id = e.id
+      WHERE t.id = ?
+    `, [req.params.id]);
+
+    if (!tx) return res.status(404).json({ error: 'Transaction not found' });
+    
+    // Resolve event titles if event_id is present
+    if (tx && tx.event_id) {
+      const ids = String(tx.event_id).split(',').map(id => id.trim()).filter(Boolean);
+      if (ids.length > 0) {
+        const events = await db.queryAll(`SELECT title FROM events WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+        tx.event_title = events.map(ev => ev.title).join(', ');
+      }
+    }
+    
+    res.json(tx);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create new transaction (Member Payment, Member Donation, or Outside Donation)
+router.post('/', async (req, res) => {
+  try {
+    const { 
+      type, // 'member_payment', 'member_donation', 'outside_donation'
+      member_id, 
+      outside_person_name, 
+      outside_person_phone, 
+      event_id, 
+      due_id, 
+      amount, 
+      payment_mode, 
+      notes,
+      send_whatsapp,
+      created_at
+    } = req.body;
+
+    const parsedAmount = parseFloat(amount);
+    if (!type || isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: 'Valid transaction type and positive amount are required' });
+    }
+
+    // Generate unique receipt number e.g., KPNS-MR-2026-001
+    const targetDate = (created_at && !isNaN(new Date(created_at).getTime())) ? new Date(created_at) : new Date();
+    const currentYear = targetDate.getFullYear();
+    const countObj = await db.queryOne(`SELECT COUNT(*) as count FROM transactions WHERE receipt_no LIKE 'KPNS-MR-${currentYear}-%'`);
+    const receiptNo = `KPNS-MR-${currentYear}-${String(countObj.count + 1).padStart(3, '0')}`;
+
+    let resolvedMemberId = member_id || null;
+    let resolvedOutsideName = outside_person_name || null;
+    let resolvedOutsidePhone = outside_person_phone || null;
+
+    if (type === 'outside_donation') {
+      if (!outside_person_name) {
+        return res.status(400).json({ error: 'Outside person name is required for outside donation' });
+      }
+      resolvedMemberId = null;
+    } else {
+      if (!member_id) {
+        return res.status(400).json({ error: 'Member is required for member transaction' });
+      }
+    }
+
+    // If type is member_payment and due_id or event_id provided, update event_dues paid_amount
+    if (type === 'member_payment') {
+      if (due_id) {
+        const targetDue = await db.queryOne('SELECT * FROM event_dues WHERE id = ?', [due_id]);
+        if (targetDue) {
+          const newPaidAmount = targetDue.paid_amount + parsedAmount;
+          const newStatus = newPaidAmount >= targetDue.amount ? 'completed' : 'partial';
+          await db.execute(
+            `UPDATE event_dues SET paid_amount = ?, status = ? WHERE id = ?`,
+            [newPaidAmount, newStatus, targetDue.id]
+          );
+        }
+      } else if (event_id && member_id) {
+        // Handle multiple event IDs sequentially
+        const eventIds = String(event_id).split(',').map(id => id.trim()).filter(Boolean);
+        let remainingPayment = parsedAmount;
+        
+        for (const evId of eventIds) {
+          if (remainingPayment <= 0) break;
+          const targetDue = await db.queryOne('SELECT * FROM event_dues WHERE event_id = ? AND member_id = ?', [evId, member_id]);
+          if (targetDue) {
+            const dueRemaining = targetDue.amount - targetDue.paid_amount;
+            if (dueRemaining > 0) {
+              const paymentToApply = Math.min(remainingPayment, dueRemaining);
+              const newPaidAmount = targetDue.paid_amount + paymentToApply;
+              const newStatus = newPaidAmount >= targetDue.amount ? 'completed' : 'partial';
+              await db.execute(
+                `UPDATE event_dues SET paid_amount = ?, status = ? WHERE id = ?`,
+                [newPaidAmount, newStatus, targetDue.id]
+              );
+              remainingPayment -= paymentToApply;
+            }
+          }
+        }
+      }
+    }
+
+    // Record Transaction
+    const txResult = await db.execute(
+      `INSERT INTO transactions (
+        receipt_no, member_id, outside_person_name, outside_person_phone, 
+        event_id, due_id, type, amount, payment_mode, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+      [
+        receiptNo, resolvedMemberId, resolvedOutsideName, resolvedOutsidePhone,
+        event_id || null, due_id || null, type, parsedAmount, payment_mode || 'Cash', notes || '',
+        created_at ? `${created_at} 12:00:00` : null
+      ]
+    );
+
+    const createdTxId = txResult.lastID;
+
+    // Fetch full created tx with recipient information
+    const createdTx = await db.queryOne(`
+      SELECT 
+        t.*,
+        m.name as member_name,
+        m.phone as member_phone
+      FROM transactions t
+      LEFT JOIN members m ON t.member_id = m.id
+      WHERE t.id = ?
+    `, [createdTxId]);
+
+    // Send WhatsApp if requested
+    let whatsappResult = null;
+    if (send_whatsapp) {
+      const recipientName = createdTx.member_name || createdTx.outside_person_name || 'Valued Supporter';
+      const recipientPhone = createdTx.member_phone || createdTx.outside_person_phone;
+
+      if (recipientPhone) {
+        whatsappResult = await sendWhatsAppSlip({
+          phone: recipientPhone,
+          memberName: recipientName,
+          receiptNo,
+          amount: parsedAmount,
+          type: type === 'member_payment' ? 'Event Dues Payment' : (type === 'member_donation' ? 'Member Donation' : 'Outside Donation'),
+          date: new Date().toLocaleDateString('en-IN'),
+          note: notes
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      transactionId: createdTxId,
+      receiptNo,
+      whatsappResult,
+      message: `Transaction recorded successfully. Receipt No: ${receiptNo}`
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger WhatsApp message manually for an existing receipt
+router.post('/:id/send-whatsapp', async (req, res) => {
+  try {
+    const tx = await db.queryOne(`
+      SELECT 
+        t.*,
+        m.name as member_name,
+        m.phone as member_phone
+      FROM transactions t
+      LEFT JOIN members m ON t.member_id = m.id
+      WHERE t.id = ?
+    `, [req.params.id]);
+
+    if (!tx) return res.status(404).json({ error: 'Transaction not found' });
+
+    const recipientName = tx.member_name || tx.outside_person_name || 'Valued Supporter';
+    const recipientPhone = req.body.phone || tx.member_phone || tx.outside_person_phone;
+
+    if (!recipientPhone) {
+      return res.status(400).json({ error: 'No recipient phone number available' });
+    }
+
+    const whatsappResult = await sendWhatsAppSlip({
+      phone: recipientPhone,
+      memberName: recipientName,
+      receiptNo: tx.receipt_no,
+      amount: tx.amount,
+      type: tx.type === 'member_payment' ? 'Event Dues Payment' : (tx.type === 'member_donation' ? 'Member Donation' : 'Outside Donation'),
+      date: new Date(tx.created_at).toLocaleDateString('en-IN'),
+      note: tx.notes
+    });
+
+    res.json({ success: true, whatsappResult });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit transaction (admin only) - edits amount, payment_mode, notes, created_at
+router.put('/:id', async (req, res) => {
+  try {
+    const txId = req.params.id;
+    const { amount, payment_mode, notes, created_at } = req.body;
+
+    const tx = await db.queryOne(`SELECT * FROM transactions WHERE id = ?`, [txId]);
+    if (!tx) return res.status(404).json({ error: 'Transaction not found' });
+
+    const newAmount = amount ? parseFloat(amount) : tx.amount;
+    if (isNaN(newAmount) || newAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+
+    await db.execute(
+      `UPDATE transactions SET amount = ?, payment_mode = ?, notes = ?, created_at = COALESCE(?, created_at) WHERE id = ?`,
+      [newAmount, payment_mode || tx.payment_mode, notes ?? tx.notes, created_at ? `${created_at} 12:00:00` : null, txId]
+    );
+
+    res.json({ success: true, message: 'Transaction updated successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete transaction (admin only)
+router.delete('/:id', async (req, res) => {
+  try {
+    const txId = req.params.id;
+    const tx = await db.queryOne(`SELECT * FROM transactions WHERE id = ?`, [txId]);
+    if (!tx) return res.status(404).json({ error: 'Transaction not found' });
+
+    // If it was a member payment, reverse the paid amount on event_dues
+    if (tx.type === 'member_payment' && tx.event_id && tx.member_id) {
+      const eventIds = String(tx.event_id).split(',').map(id => id.trim()).filter(Boolean);
+      let remaining = tx.amount;
+      for (const evId of eventIds) {
+        if (remaining <= 0) break;
+        const due = await db.queryOne(
+          `SELECT * FROM event_dues WHERE event_id = ? AND member_id = ?`, [evId, tx.member_id]
+        );
+        if (due) {
+          const reversal = Math.min(remaining, due.paid_amount);
+          const newPaid = due.paid_amount - reversal;
+          const newStatus = newPaid <= 0 ? 'pending' : (newPaid >= due.amount ? 'completed' : 'partial');
+          await db.execute(
+            `UPDATE event_dues SET paid_amount = ?, status = ? WHERE id = ?`,
+            [newPaid, newStatus, due.id]
+          );
+          remaining -= reversal;
+        }
+      }
+    }
+
+    await db.execute(`DELETE FROM transactions WHERE id = ?`, [txId]);
+    res.json({ success: true, message: 'Transaction deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;

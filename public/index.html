@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KPNS Organization Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <!-- html2canvas for capturing DOM receipt cards into downloadable PNG images -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- SheetJS for client-side Excel parsing & sample template generation -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Flatpickr for DD/MM/YYYY global date inputs -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+</head>
+
+<body>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- Navigation Overlay Backdrop for Mobile -->
+  <div class="nav-overlay" id="navOverlay" onclick="closeMobileMenu()"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <img src="assets/logo.png" alt="KPNS Logo" id="headerLogo">
+      <div class="brand-text">
+        <h1>KPNS ORGANIZATION</h1>
+        <p>Financial & Member Management System</p>
+      </div>
+    </div>
+
+    <button class="mobile-toggle" id="mobileMenuBtn" onclick="toggleMobileMenu()" aria-label="Toggle Navigation">☰</button>
+
+    <nav id="mainNav">
+      <button class="nav-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+      <button class="nav-btn" onclick="switchTab('members')">👥 Members</button>
+      <button class="nav-btn" onclick="switchTab('events')">🎯 Events</button>
+      <button class="nav-btn" onclick="switchTab('transactions')">🧾 Transactions & Slips</button>
+      <button class="nav-btn" onclick="switchTab('expenses')">💸 Expenses</button>
+      <button class="nav-btn" onclick="switchTab('passbook')">📖 Passbook</button>
+      <button class="nav-btn" onclick="switchTab('reports')">📈 Reports</button>
+      <button class="nav-btn" onclick="switchTab('users')">⚙️ Users</button>
+    </nav>
+
+    <div class="user-profile">
+      <div style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.2;">
+        <span style="font-size:0.85rem;font-weight:700;color:var(--text-primary);" id="userNameDisplay">Guest</span>
+        <span class="role-badge" id="userRoleBadge">GUEST</span>
+      </div>
+      <button class="btn btn-outline btn-sm" id="authBtn" onclick="handleAuthButtonClick()">Login</button>
+      <button class="btn btn-outline btn-sm" onclick="exportDataBackup()" title="Download Backup">📥 Backup</button>
+      <button class="btn btn-outline btn-sm" onclick="openModal('importBackupModal')" title="Restore Backup">📤 Restore</button>
+      <button class="btn btn-rose btn-sm" id="eraseAllBtn" onclick="eraseAllData()" style="display: none;" title="Erase All Data">💥 Erase All Data</button>
+    </div>
+  </header>
+
+
+  <!-- Main Container -->
+  <main>
+    
+    <!-- DASHBOARD TAB -->
+    <section id="dashboard" class="tab-content active">
+      <div class="section-header">
+        <h2 class="section-title">📊 Executive Financial Summary</h2>
+        <button class="btn btn-emerald" onclick="openTransactionModal()">+ New Transaction / Receipt</button>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <span class="metric-title">Total Cash Collected</span>
+          <span class="metric-value text-emerald" id="metricTotalIncome">₹0</span>
+          <span class="metric-sub">Member Dues + All Donations</span>
+        </div>
+        <div class="metric-card rose">
+          <span class="metric-title">Total Expenses Paid</span>
+          <span class="metric-value text-rose" id="metricTotalExpenses">₹0</span>
+          <span class="metric-sub">Events + Generic Expenses</span>
+        </div>
+        <div class="metric-card blue">
+          <span class="metric-title">Net Available Fund Balance</span>
+          <span class="metric-value text-gold" id="metricNetBalance">₹0</span>
+          <span class="metric-sub">Current Treasury Balance</span>
+        </div>
+        <div class="metric-card">
+          <span class="metric-title">Total Pending Member Dues</span>
+          <span class="metric-value text-rose" id="metricPendingDues">₹0</span>
+          <span class="metric-sub">Across Imposed Events</span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;" class="dashboard-tables">
+        <div>
+          <div class="section-header">
+            <h3 class="section-title">Latest Organization Events</h3>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>Contribution</th>
+                  <th>Collected / Expected</th>
+                </tr>
+              </thead>
+              <tbody id="dashEventsBody">
+                <!-- Loaded via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-header">
+            <h3 class="section-title">Recent Transactions & Receipts</h3>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Receipt No</th>
+                  <th>Member / Person</th>
+                  <th>Amount</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="dashTxBody">
+                <!-- Loaded via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 24px;">
+        <div class="section-header">
+          <h3 class="section-title">🎂 Upcoming Member Birthdays</h3>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Member Name</th>
+                <th>Phone Number</th>
+                <th>Date of Birth</th>
+                <th>Upcoming Birthday</th>
+                <th>Days Left</th>
+                <th>Turning Age</th>
+              </tr>
+            </thead>
+            <tbody id="dashBirthdaysBody">
+              <!-- Loaded via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- MEMBERS TAB -->
+    <section id="members" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">👥 Organization Members</h2>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <button class="btn btn-outline" onclick="downloadSampleExcelTemplate()">📥 Download Template</button>
+          <button class="btn btn-emerald" onclick="openModal('excelUploadModal')">📊 Bulk Upload</button>
+          <button class="btn btn-outline" onclick="exportMembersList()">📤 Export Members</button>
+          <button class="btn btn-outline" onclick="seedSampleMembers()">🌱 Seed Sample 50</button>
+          <button class="btn" onclick="showAddMemberModal()">+ Add Member</button>
+        </div>
+      </div>
+
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Form No</th>
+              <th>Member ID</th>
+              <th>Register Member</th>
+              <th>Father Name</th>
+              <th>Admission Date</th>
+              <th>Mobile No</th>
+              <th>Aadhaar Number</th>
+              <th>Blood Group</th>
+              <th>Alt Mobile</th>
+              <th>DOB</th>
+              <th>Status</th>
+              <th>Pending Dues</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="membersTableBody">
+            <!-- Loaded via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- EVENTS TAB -->
+    <section id="events" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">🎯 Events & Member Contributions</h2>
+        <button class="btn" onclick="openModal('eventModal')">+ Create Event & Impose Contribution</button>
+      </div>
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Event Name</th>
+              <th>Date</th>
+              <th>Contribution Per Member</th>
+              <th>Members Count</th>
+              <th>Expected Collection</th>
+              <th>Collected</th>
+              <th>Expenses</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="eventsTableBody">
+            <!-- Loaded via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TRANSACTIONS & RECEIPTS TAB -->
+    <section id="transactions" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">🧾 Transactions & Sleep (Receipt) Generator</h2>
+        <button class="btn btn-emerald" onclick="openTransactionModal()">+ Record Payment / Donation</button>
+      </div>
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Receipt No</th>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Member / Person Name</th>
+              <th>Amount</th>
+              <th>Mode</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="txTableBody">
+            <!-- Loaded via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- EXPENSES TAB -->
+    <section id="expenses" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">💸 Organization Expenses</h2>
+        <button class="btn btn-rose" onclick="openModal('expenseModal')">+ Add New Expense</button>
+      </div>
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Voucher No</th>
+              <th>Date</th>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Related Event</th>
+              <th>Paid To</th>
+              <th>Amount</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="expenseTableBody">
+            <!-- Loaded via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PASSBOOK TAB -->
+    <section id="passbook" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">📖 Member Passbook Statement</h2>
+        <button class="btn btn-outline" onclick="downloadPassbookImage()">🖼️ Download Passbook Picture</button>
+      </div>
+
+      <div class="passbook-summary-box" style="align-items: flex-end;">
+        <div style="flex: 2;" class="form-group">
+          <label>Select Member:</label>
+          <select id="passbookMemberSelect" class="form-control" onchange="loadPassbook()">
+            <option value="">-- Choose Member --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>From Date:</label>
+          <input type="date" id="passbookFromDate" class="form-control" onchange="loadPassbook()">
+        </div>
+        <div class="form-group">
+          <label>To Date:</label>
+          <input type="date" id="passbookToDate" class="form-control" onchange="loadPassbook()">
+        </div>
+        <button class="btn" onclick="loadPassbook()">Fetch Passbook</button>
+      </div>
+
+      <!-- Passbook Statement Container (Capturable for PNG Download) -->
+      <div id="passbookRenderContainer" style="background: var(--bg-card); padding: 24px; border-radius: 12px; border: 1px solid var(--border-color);">
+        <div style="display: flex; justify-content: space-between; border-bottom: 2px solid var(--border-color); padding-bottom: 14px; margin-bottom: 16px;">
+          <div>
+            <h3 id="passbookMemberName" style="color: var(--accent-gold); font-size: 1.3rem;">Select a Member</h3>
+            <p id="passbookMemberCode" style="color: var(--text-secondary);">Code: - | Phone: -</p>
+          </div>
+          <div style="text-align: right;">
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">Period: <span id="passbookPeriodText">All Time</span></p>
+            <p style="font-size: 1.1rem; font-weight: 800; color: var(--accent-emerald);">KPNS ORGANIZATION</p>
+          </div>
+        </div>
+
+        <div class="metrics-grid" style="margin-bottom: 16px;">
+          <div class="metric-card">
+            <span class="metric-title">Previous Due Balance</span>
+            <span class="metric-value" id="passbookPrevDue">₹0</span>
+            <span class="metric-sub">Balance before selected start date</span>
+          </div>
+          <div class="metric-card emerald">
+            <span class="metric-title">Current Due Balance</span>
+            <span class="metric-value text-emerald" id="passbookCurrentDue">₹0</span>
+            <span class="metric-sub">Net pending dues</span>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Entry Type</th>
+                <th>Description</th>
+                <th>Debit (Dues Imposed)</th>
+                <th>Credit (Payment Received)</th>
+                <th>Running Due Balance</th>
+              </tr>
+            </thead>
+            <tbody id="passbookTableBody">
+              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Please select a member to view passbook.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- REPORTS TAB -->
+    <section id="reports" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">📈 Balance Sheet Reports</h2>
+        <button class="btn btn-outline" onclick="window.print()">🖨️ Print / Export PDF</button>
+      </div>
+
+      <div class="passbook-summary-box" style="align-items: flex-end;">
+        <div class="form-group">
+          <label>Report Type:</label>
+          <select id="reportTypeSelect" class="form-control" onchange="toggleReportFilters()">
+            <option value="yearly">Yearly Balance Sheet</option>
+            <option value="event">Event Balance Sheet</option>
+            <option value="custom">Custom Time Period Balance Sheet</option>
+          </select>
+        </div>
+
+        <div id="filterYearGroup" class="form-group">
+          <label>Select Year:</label>
+          <input type="number" id="reportYear" class="form-control" value="2026">
+        </div>
+
+        <div id="filterEventGroup" class="form-group" style="display: none;">
+          <label>Select Event:</label>
+          <select id="reportEventSelect" class="form-control">
+            <option value="">-- Choose Event --</option>
+          </select>
+        </div>
+
+        <div id="filterCustomGroup" class="form-group" style="display: none; display: flex; gap: 10px;">
+          <div>
+            <label>From Date:</label>
+            <input type="date" id="reportFromDate" class="form-control">
+          </div>
+          <div>
+            <label>To Date:</label>
+            <input type="date" id="reportToDate" class="form-control">
+          </div>
+        </div>
+
+        <button class="btn btn-emerald" onclick="generateReport()">Generate Balance Sheet</button>
+      </div>
+
+      <!-- Report View Container -->
+      <div id="reportContainer" style="background: var(--bg-card); padding: 28px; border-radius: 12px; border: 1px solid var(--border-color);">
+        <div style="text-align: center; color: var(--text-secondary); padding: 40px 0;">
+          Click "Generate Balance Sheet" above to load financial report.
+        </div>
+      </div>
+    </section>
+
+    <!-- USER MANAGEMENT TAB -->
+    <section id="users" class="tab-content">
+      <div class="section-header">
+        <h2 class="section-title">⚙️ Application Managers & Users</h2>
+        <button class="btn" onclick="openModal('userModal')">+ Add Manager / Admin</button>
+      </div>
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Created At</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <!-- Loaded via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODALS -->
+
+  <!-- Add Member Modal -->
+  <div class="modal-backdrop" id="memberModal">
+    <div class="modal" style="max-width: 680px;">
+      <div class="modal-header">
+        <h3 id="memberModalTitle">Add New Member Registration</h3>
+        <button class="close-btn" onclick="closeModal('memberModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="memberForm" onsubmit="saveMember(event)">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+            
+            <div class="form-group">
+              <label>Form No (From No)</label>
+              <input type="text" id="mFormNo" class="form-control" placeholder="e.g. F-1001 (Auto generated if blank)">
+            </div>
+
+            <div class="form-group">
+              <label>Member ID Code</label>
+              <input type="text" id="mCode" class="form-control" placeholder="e.g. KPNS-001 (Auto generated if blank)">
+            </div>
+
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Register Member Name *</label>
+              <input type="text" id="mName" class="form-control" required placeholder="e.g. Rajesh Sharma">
+            </div>
+
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Father Name of Member *</label>
+              <input type="text" id="mFatherName" class="form-control" required placeholder="e.g. Shri Ramashankar Sharma">
+            </div>
+
+            <div class="form-group">
+              <label>Date of Admission *</label>
+              <input type="date" id="mDateOfAdmission" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+              <label>Mobile No *</label>
+              <input type="text" id="mPhone" class="form-control" required placeholder="e.g. 9876543210">
+            </div>
+
+            <div class="form-group">
+              <label>Email ID</label>
+              <input type="email" id="mEmail" class="form-control" placeholder="e.g. member@kpns.org">
+            </div>
+
+            <div class="form-group">
+              <label>Aadhaar Number</label>
+              <input type="text" id="mAadhaar" class="form-control" placeholder="e.g. 1234 5678 9012">
+            </div>
+
+            <div class="form-group">
+              <label>Blood Group</label>
+              <select id="mBloodGroup" class="form-control">
+                <option value="O+">O+</option>
+                <option value="A+">A+</option>
+                <option value="B+">B+</option>
+                <option value="AB+">AB+</option>
+                <option value="O-">O-</option>
+                <option value="A-">A-</option>
+                <option value="B-">B-</option>
+                <option value="AB-">AB-</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Alternative Number</label>
+              <input type="text" id="mAltPhone" class="form-control" placeholder="e.g. 9412345678">
+            </div>
+
+            <div class="form-group">
+              <label>Date of Birth (DOB)</label>
+              <input type="date" id="mDOB" class="form-control">
+            </div>
+
+            <div class="form-group">
+              <label>Member Status</label>
+              <select id="mStatus" class="form-control">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+                <option value="Expired">Expired</option>
+              </select>
+            </div>
+
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Address</label>
+              <input type="text" id="mAddress" class="form-control" placeholder="e.g. Ward 4, KPNS Region">
+            </div>
+
+          </div>
+
+          <button type="submit" id="memberModalSubmitBtn" class="btn btn-emerald" style="width: 100%; margin-top: 10px;">Save Member Record</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Create Event Modal -->
+  <div class="modal-backdrop" id="eventModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Create Event & Impose Contribution</h3>
+        <button class="close-btn" onclick="closeModal('eventModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="eventForm" onsubmit="saveEvent(event)">
+          <div class="form-group">
+            <label>Event Title *</label>
+            <input type="text" id="eTitle" class="form-control" required placeholder="e.g. Annual Festival 2026">
+          </div>
+          <div class="form-group">
+            <label>Contribution Amount (₹) Per Member *</label>
+            <input type="number" step="0.01" id="eAmount" class="form-control" required placeholder="e.g. 500">
+            <small style="color: var(--accent-gold); display: block; margin-top: 4px;">⚠️ This amount will be automatically imposed for all active members.</small>
+          </div>
+          <div class="form-group">
+            <label>Event Date *</label>
+            <input type="date" id="eDate" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="eDesc" class="form-control" rows="3" placeholder="Event details..."></textarea>
+          </div>
+          <button type="submit" class="btn" style="width: 100%;">Create Event & Impose Dues</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Record Transaction / Receipt Modal -->
+  <div class="modal-backdrop" id="transactionModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Record Transaction & Generate Receipt</h3>
+        <button class="close-btn" onclick="closeModal('transactionModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="txForm" onsubmit="saveTransaction(event)">
+          <div class="form-group">
+            <label>Transaction Type *</label>
+            <select id="txType" class="form-control" onchange="toggleTxTypeFields()" required>
+              <option value="member_payment">Member Event Dues Payment</option>
+              <option value="member_donation">Member Donation (Shows in passbook, does not deduct dues)</option>
+              <option value="outside_donation">Outside Person Donation</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Transaction Date *</label>
+            <input type="date" id="txDate" class="form-control" required>
+          </div>
+
+          <div id="txMemberGroup" class="form-group">
+            <label>Select Member *</label>
+            <select id="txMemberId" class="form-control">
+              <option value="">-- Select Member --</option>
+            </select>
+          </div>
+
+          <div id="txOutsideGroup" class="form-group" style="display: none;">
+            <label>Outside Person Name *</label>
+            <input type="text" id="txOutsideName" class="form-control" placeholder="e.g. Ramesh Chandra">
+            <label style="margin-top: 8px;">Outside Person Phone Number</label>
+            <input type="text" id="txOutsidePhone" class="form-control" placeholder="e.g. 9876543210">
+          </div>
+
+          <div id="txEventGroup" class="form-group">
+            <label>Related Events (Optional - Select Multiple)</label>
+            <div id="txEventsCheckboxList" style="max-height: 140px; overflow-y: auto; border: 1px solid var(--glass-border); padding: 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 6px;">
+              <!-- Populated dynamically by JS -->
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Amount (₹) *</label>
+            <input type="number" step="0.01" id="txAmount" class="form-control" required placeholder="e.g. 1000">
+          </div>
+
+          <div class="form-group">
+            <label>Payment Mode</label>
+            <select id="txMode" class="form-control">
+              <option value="Cash">Cash</option>
+              <option value="UPI / Online">UPI / Online</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Cheque">Cheque</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Notes / Remarks</label>
+            <input type="text" id="txNotes" class="form-control" placeholder="e.g. Paid in full">
+          </div>
+
+          <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="txSendWhatsApp" checked style="width: 18px; height: 18px;">
+            <label for="txSendWhatsApp" style="margin: 0;">Send WhatsApp slip to recipient</label>
+          </div>
+
+          <button type="submit" class="btn btn-emerald" style="width: 100%;">Record & View Sleep (Receipt)</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Record Expense Modal -->
+  <div class="modal-backdrop" id="expenseModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Record Organization Expense</h3>
+        <button class="close-btn" onclick="closeModal('expenseModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="expenseForm" onsubmit="saveExpense(event)">
+          <div class="form-group">
+            <label>Expense Title *</label>
+            <input type="text" id="expTitle" class="form-control" required placeholder="e.g. Tent & Light Booking">
+          </div>
+          <div class="form-group">
+            <label>Category *</label>
+            <select id="expCategory" class="form-control" required>
+              <option value="event">Event Expense</option>
+              <option value="general">General Office / Maintenance</option>
+              <option value="other">Other Purpose</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Related Event (If applicable)</label>
+            <select id="expEventId" class="form-control">
+              <option value="">-- None / General Purpose --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Amount (₹) *</label>
+            <input type="number" step="0.01" id="expAmount" class="form-control" required placeholder="e.g. 2500">
+          </div>
+          <div class="form-group">
+            <label>Paid To Vendor / Person</label>
+            <input type="text" id="expPaidTo" class="form-control" placeholder="e.g. Sharma Decorators">
+          </div>
+          <div class="form-group">
+            <label>Expense Date *</label>
+            <input type="date" id="expDate" class="form-control" required>
+          </div>
+          <button type="submit" class="btn btn-rose" style="width: 100%;">Save Expense Record</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECEIPT SLIP PREVIEW & DOWNLOAD MODAL -->
+  <div class="modal-backdrop" id="receiptModal">
+    <div class="modal" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3>🧾 Transaction Sleep (Receipt)</h3>
+        <button class="close-btn" onclick="closeModal('receiptModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- Printable & Picture Convertible Slip Container -->
+        <div id="receiptSlipCard" class="receipt-card">
+          <div class="receipt-header">
+            <img src="assets/logo.png" alt="Logo">
+            <h2>KPNS ORGANIZATION</h2>
+            <p>Official Transaction Receipt</p>
+            <span class="receipt-title-tag" id="rTag">MEMBER PAYMENT</span>
+          </div>
+
+          <div class="receipt-row">
+            <span class="receipt-label">Receipt No:</span>
+            <span class="receipt-val" id="rNo">KPNS-2026-0001</span>
+          </div>
+          <div class="receipt-row">
+            <span class="receipt-label">Date:</span>
+            <span class="receipt-val" id="rDate">22/07/2026</span>
+          </div>
+          <div class="receipt-row">
+            <span class="receipt-label">Received From:</span>
+            <span class="receipt-val" id="rName">Rajesh Sharma</span>
+          </div>
+          <div class="receipt-row" id="rMemberIdRow">
+            <span class="receipt-label">Member ID:</span>
+            <span class="receipt-val" id="rMemberId">-</span>
+          </div>
+          <div class="receipt-row" id="rPhoneRow">
+            <span class="receipt-label">Phone:</span>
+            <span class="receipt-val" id="rPhone">+91 9876543210</span>
+          </div>
+          <div class="receipt-row" id="rEventRow">
+            <span class="receipt-label">Event / Purpose:</span>
+            <span class="receipt-val" id="rEvent">Annual Festival 2026</span>
+          </div>
+
+          <div class="receipt-amount-box">
+            <div style="font-size: 0.8rem; color: #166534; font-weight: 600;">AMOUNT RECEIVED</div>
+            <div class="amount" id="rAmount">₹1,000</div>
+          </div>
+
+          <div class="receipt-row">
+            <span class="receipt-label">Payment Mode:</span>
+            <span class="receipt-val" id="rMode">Cash</span>
+          </div>
+          <div class="receipt-row" id="rWordsRow">
+            <span class="receipt-label">Amount in Words:</span>
+            <span class="receipt-val" id="rAmountInWords">-</span>
+          </div>
+          <div class="receipt-row" id="rNotesRow">
+            <span class="receipt-label">Notes:</span>
+            <span class="receipt-val" id="rNotes">-</span>
+          </div>
+
+          <div class="receipt-footer">
+            <p>This is a computer-generated slip issued by KPNS Organization.</p>
+            <p style="margin-top: 4px; font-weight: 600;">Thank you for your support!</p>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+          <button class="btn btn-emerald" style="flex: 1;" onclick="downloadReceiptPicture()">📸 Download Picture File</button>
+          <button class="btn btn-whatsapp" style="flex: 1;" id="rWhatsAppBtn" onclick="dispatchWhatsAppDirect()">💬 Send WhatsApp</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Add User Modal -->
+  <div class="modal-backdrop" id="userModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Add New App Manager</h3>
+        <button class="close-btn" onclick="closeModal('userModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="userForm" onsubmit="saveUser(event)">
+          <div class="form-group">
+            <label>Full Name *</label>
+            <input type="text" id="uName" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Email Address *</label>
+            <input type="email" id="uEmail" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Password *</label>
+            <input type="password" id="uPassword" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Role *</label>
+            <select id="uRole" class="form-control" required>
+              <option value="admin">Admin</option>
+              <option value="president">President</option>
+              <option value="secretary">Secretary</option>
+              <option value="treasurer">Treasurer</option>
+            </select>
+          </div>
+          <button type="submit" class="btn" style="width: 100%;">Create App User</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT USER MODAL -->
+  <div class="modal-backdrop" id="userEditModal">
+    <div class="modal" style="max-width: 460px;">
+      <div class="modal-header">
+        <h3>✏️ Edit App User</h3>
+        <button class="close-btn" onclick="closeModal('userEditModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="userEditForm" onsubmit="saveEditUser(event)">
+          <div class="form-group">
+            <label>Full Name *</label>
+            <input type="text" id="uEditName" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Email Address *</label>
+            <input type="email" id="uEditEmail" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>New Password <small style="color:var(--text-muted);">(leave blank to keep current)</small></label>
+            <input type="password" id="uEditPassword" class="form-control" placeholder="Leave blank to keep existing">
+          </div>
+          <div class="form-group">
+            <label>Role *</label>
+            <select id="uEditRole" class="form-control" required>
+              <option value="admin">Admin</option>
+              <option value="president">President</option>
+              <option value="secretary">Secretary</option>
+              <option value="treasurer">Treasurer</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-emerald" style="width:100%;">💾 Update User</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div class="modal-backdrop" id="loginModal">
+    <div class="modal" style="max-width: 440px; overflow: hidden;">
+      <div class="modal-header">
+        <h3>🔑 Login to KPNS System</h3>
+        <button class="close-btn" onclick="closeModal('loginModal')">&times;</button>
+      </div>
+      <div class="modal-body" style="position: relative;">
+
+        <!-- Watermark Logo -->
+        <div style="
+          position: absolute;
+          inset: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          pointer-events: none;
+          z-index: 0;
+        ">
+          <img src="assets/logo.png" alt="KPNS Watermark"
+            style="width: 220px; height: 220px; object-fit: contain; opacity: 0.06; filter: grayscale(100%);">
+        </div>
+
+        <!-- Logo + Title above form -->
+        <div style="text-align: center; margin-bottom: 22px; position: relative; z-index: 1;">
+          <img src="assets/logo.png" alt="KPNS Logo" style="width: 70px; height: 70px; object-fit: contain; border-radius: 50%; border: 2px solid var(--border-color); padding: 6px; background: var(--bg-card); margin-bottom: 8px;">
+          <div style="font-size: 0.8rem; color: var(--text-secondary); letter-spacing: 1px;">KPNS ORGANIZATION</div>
+        </div>
+
+        <form id="loginForm" onsubmit="performLogin(event)" style="position: relative; z-index: 1;">
+          <div class="form-group">
+            <label>Email Address *</label>
+            <input type="email" id="loginEmail" class="form-control" placeholder="Enter your email" required>
+          </div>
+          <div class="form-group">
+            <label>Password *</label>
+            <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" required>
+          </div>
+          <button type="submit" class="btn" style="width: 100%;">Sign In</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- EXCEL BULK UPLOAD MODAL -->
+  <div class="modal-backdrop" id="excelUploadModal">
+    <div class="modal" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3>📊 Bulk Member Upload from Excel File</h3>
+        <button class="close-btn" onclick="closeModal('excelUploadModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Select Excel File (.xlsx, .xls, .csv):</label>
+          <input type="file" id="excelFileInput" class="form-control" accept=".xlsx, .xls, .csv" onchange="parseExcelFile(event)">
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <small style="color: var(--text-secondary);">Expected Columns: FORM NO, MEMBER ID, REGISTER MEMBER, FATHER NAME OF MEMBER, DATE OF ADMISSION, MOBILE NO, EMAIL ID, AADHAAR NUMBER, BLOOD GROUP, ALTERNATIVE NUMBER, DOB, MEMBER STATUS, ADDRESS</small>
+          <button class="btn btn-outline btn-sm" onclick="downloadSampleExcelTemplate()">📥 Sample File</button>
+        </div>
+
+        <div id="excelPreviewContainer" style="display: none; margin-top: 16px;">
+          <h4 style="margin-bottom: 8px; color: var(--accent-gold);">Parsed Sheet Preview (<span id="excelParsedCount">0</span> records)</h4>
+          <div class="table-responsive" style="max-height: 250px;">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Member Name</th>
+                  <th>Father Name</th>
+                  <th>Phone</th>
+                  <th>Aadhaar</th>
+                  <th>Admission</th>
+                  <th>DOB</th>
+                </tr>
+              </thead>
+              <tbody id="excelPreviewBody"></tbody>
+            </table>
+          </div>
+          <button class="btn btn-emerald" style="width: 100%; margin-top: 16px;" onclick="confirmBulkUpload()">🚀 Confirm & Import Members</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- IMPORT BACKUP MODAL -->
+  <div class="modal-backdrop" id="importBackupModal">
+    <div class="modal" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>📤 Restore Data Backup</h3>
+        <button class="close-btn" onclick="closeModal('importBackupModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Select Backup File (.json):</label>
+          <input type="file" id="backupFileInput" class="form-control" accept=".json">
+        </div>
+        <p style="font-size: 0.8rem; color: var(--accent-rose); margin-bottom: 16px;">
+          ⚠️ Restoring backup will replace current database records with the backup file data.
+        </p>
+        <button class="btn btn-emerald" style="width: 100%;" onclick="importDataBackup()">Restore Database</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT EXPENSE MODAL -->
+  <div class="modal-backdrop" id="expEditModal">
+    <div class="modal" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3>✏️ Edit Expense</h3>
+        <button class="close-btn" onclick="closeModal('expEditModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:rgba(251,191,36,0.08);border:1px solid var(--border-color);padding:10px;border-radius:8px;margin-bottom:14px;font-size:0.85rem;color:var(--text-secondary);">
+          Voucher No: <strong id="expEditVoucher" class="text-gold">-</strong>
+        </div>
+        <form id="expEditForm" onsubmit="saveEditExpense(event)">
+          <div class="form-group">
+            <label>Expense Title *</label>
+            <input type="text" id="expEditTitle" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Category *</label>
+            <select id="expEditCategory" class="form-control" required>
+              <option value="event">Event Expense</option>
+              <option value="general">General Office / Maintenance</option>
+              <option value="other">Other Purpose</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Related Event (If applicable)</label>
+            <select id="expEditEventId" class="form-control">
+              <option value="">-- None / General Purpose --</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Amount (₹) *</label>
+            <input type="number" step="0.01" id="expEditAmount" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Paid To Vendor / Person</label>
+            <input type="text" id="expEditPaidTo" class="form-control">
+          </div>
+          <div class="form-group">
+            <label>Expense Date *</label>
+            <input type="date" id="expEditDate" class="form-control" required>
+          </div>
+          <button type="submit" class="btn btn-emerald" style="width:100%;">&#x1F4BE; Update Expense</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT TRANSACTION MODAL -->
+  <div class="modal-backdrop" id="txEditModal">
+    <div class="modal" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>✏️ Edit Transaction</h3>
+        <button class="close-btn" onclick="closeModal('txEditModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background: rgba(251,191,36,0.08); border:1px solid var(--border-color); padding:12px; border-radius:8px; margin-bottom:16px;">
+          <div style="font-size:0.8rem; color:var(--text-secondary);">Receipt No: <strong id="txEditReceiptNo" class="text-gold">-</strong></div>
+          <div style="font-size:0.8rem; color:var(--text-secondary);">Member / Person: <strong id="txEditName">-</strong></div>
+        </div>
+        <form id="txEditForm" onsubmit="saveEditTransaction(event)">
+          <div class="form-group">
+            <label>Amount (₹) *</label>
+            <input type="number" step="0.01" id="txEditAmount" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Transaction Date *</label>
+            <input type="date" id="txEditDate" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>Payment Mode</label>
+            <select id="txEditMode" class="form-control">
+              <option value="Cash">Cash</option>
+              <option value="UPI / Online">UPI / Online</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Cheque">Cheque</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Notes / Remarks</label>
+            <input type="text" id="txEditNotes" class="form-control" placeholder="e.g. Correction entry">
+          </div>
+          <button type="submit" class="btn btn-emerald" style="width:100%;">💾 Update Transaction</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
+

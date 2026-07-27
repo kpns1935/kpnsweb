@@ -130,14 +130,16 @@ async function checkAuthSession() {
         authBtn.className = 'btn btn-outline btn-sm';
       }
       
-      // Admin RBAC UI modifications
+      // RBAC UI modifications for management roles
       const usersTabBtn = document.querySelector('button[onclick="switchTab(\'users\')"]');
       const restoreBtn = document.querySelector('button[onclick="openModal(\'importBackupModal\')"]');
       const eraseBtn = document.getElementById('eraseAllBtn');
-      if (data.user.role === 'admin') {
+      const isManager = data.user && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((data.user.role || '').toLowerCase());
+
+      if (isManager) {
         if (usersTabBtn) usersTabBtn.style.display = 'block';
         if (restoreBtn) restoreBtn.style.display = 'inline-block';
-        if (eraseBtn) eraseBtn.style.display = 'inline-block';
+        if (eraseBtn) eraseBtn.style.display = data.user.role === 'admin' ? 'inline-block' : 'none';
       } else {
         if (usersTabBtn) usersTabBtn.style.display = 'none';
         if (restoreBtn) restoreBtn.style.display = 'none';
@@ -1400,11 +1402,13 @@ let usersList = [];
 async function loadUsersData() {
   try {
     const res = await fetch('/api/auth/users');
-    if (!res.ok) return; // Not admin or not authenticated
+    if (!res.ok) return;
     const users = await res.json();
     if (!Array.isArray(users)) return;
 
     usersList = users; // Cache for editUser
+
+    const isManager = currentUser && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((currentUser.role || '').toLowerCase());
 
     const tbody = document.getElementById('usersTableBody');
     tbody.innerHTML = users.map(u => `
@@ -1415,7 +1419,7 @@ async function loadUsersData() {
         <td><span class="badge badge-completed">${u.role.toUpperCase()}</span></td>
         <td>${formatDate(u.created_at)}</td>
         <td>
-          ${currentUser && currentUser.role === 'admin' ? `
+          ${isManager ? `
             <div style="display:flex;gap:6px;">
               <button class="btn btn-outline btn-sm" onclick="editUser(${u.id})">&#9999;&#65039; Edit</button>
               ${u.email !== 'kpnsclub@gmail.com' ? `<button class="btn btn-rose btn-sm" onclick="deleteUser(${u.id})">&#128465;&#65039; Delete</button>` : `<span style="font-size:0.75rem;color:var(--text-muted);padding:4px 8px;">🔒 Default</span>`}
@@ -1423,7 +1427,7 @@ async function loadUsersData() {
           ` : '-'}
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="6">No app users.</td></tr>';
+    `).join('') || '<tr><td colspan="6">No app users found.</td></tr>';
   } catch (err) {
     console.error('Users load error:', err);
   }
@@ -1556,6 +1560,10 @@ function switchTab(tabId) {
   
   if (window.event && window.event.currentTarget) {
     window.event.currentTarget.classList.add('active');
+  }
+
+  if (tabId === 'users') {
+    loadUsersData();
   }
 
   // Close mobile drawer after selecting a tab

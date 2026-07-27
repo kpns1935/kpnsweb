@@ -43,10 +43,11 @@ router.get('/me', (req, res) => {
   }
 });
 
-// List all manager/admin users (Admin only)
+const isManagementUser = (user) => user && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((user.role || '').toLowerCase());
+
+// List all manager/admin users
 router.get('/users', async (req, res) => {
   if (!req.session || !req.session.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   try {
     const users = await db.queryAll('SELECT id, name, email, role, created_at FROM users ORDER BY id ASC');
     res.json(users);
@@ -55,10 +56,10 @@ router.get('/users', async (req, res) => {
   }
 });
 
-// Create new user (Admin only)
+// Create new user
 router.post('/users', async (req, res) => {
   if (!req.session || !req.session.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  if (!isManagementUser(req.session.user)) return res.status(403).json({ error: 'Management access required' });
   try {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password) {
@@ -81,10 +82,10 @@ router.post('/users', async (req, res) => {
   }
 });
 
-// Edit user (Admin only)
+// Edit user
 router.put('/users/:id', async (req, res) => {
   if (!req.session || !req.session.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  if (!isManagementUser(req.session.user)) return res.status(403).json({ error: 'Management access required' });
   try {
     const userId = req.params.id;
     const { name, email, password, role } = req.body;
@@ -93,7 +94,7 @@ router.put('/users/:id', async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     // Prevent changing own role away from admin (safety guard)
-    if (parseInt(userId) === req.session.user.id && role && role !== 'admin') {
+    if (parseInt(userId) === req.session.user.id && role && role !== 'admin' && req.session.user.role === 'admin') {
       return res.status(400).json({ error: 'You cannot change your own admin role.' });
     }
 
@@ -115,10 +116,10 @@ router.put('/users/:id', async (req, res) => {
   }
 });
 
-// Delete user (Admin only)
+// Delete user
 router.delete('/users/:id', async (req, res) => {
   if (!req.session || !req.session.user) return res.status(401).json({ error: 'Unauthorized' });
-  if (req.session.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  if (!isManagementUser(req.session.user)) return res.status(403).json({ error: 'Management access required' });
   try {
     const userId = req.params.id;
 

@@ -2,8 +2,23 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 
-const dbPath = path.join(__dirname, '..', 'kpns.db');
+let dbPath = path.join(__dirname, '..', 'kpns.db');
+
+// In Vercel serverless environment, local project directory is read-only
+if (process.env.VERCEL || process.env.NOW_REGION) {
+  const tmpPath = path.join('/tmp', 'kpns.db');
+  if (fs.existsSync(dbPath) && !fs.existsSync(tmpPath)) {
+    try {
+      fs.copyFileSync(dbPath, tmpPath);
+    } catch (e) {
+      console.error('Error copying db file to /tmp:', e);
+    }
+  }
+  dbPath = tmpPath;
+}
+
 const db = new sqlite3.Database(dbPath);
+
 
 function initDb() {
   return new Promise((resolve, reject) => {

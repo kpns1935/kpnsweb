@@ -14,6 +14,9 @@ const backupRoutes = require('./routes/backup');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Trust proxy for Vercel reverse proxy / HTTPS session cookies
+app.set('trust proxy', 1);
+
 // Body parser
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -22,8 +25,12 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(session({
   secret: 'kpns-secret-key-organization-2026',
   resave: false,
-  saveUninitialized: true,
-  cookie: { maxAge: 24 * 60 * 60 * 1000 } // 24 hours
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    secure: process.env.NODE_ENV === 'production' && !process.env.VERCEL ? true : false,
+    sameSite: 'lax'
+  }
 }));
 
 // Serve static frontend files
@@ -57,7 +64,7 @@ function startServer(portToTry) {
     console.log(`=======================================================`);
     console.log(`🚀 KPNS Organization Web Application is running!`);
     console.log(`🌐 Local URL: http://localhost:${portToTry}`);
-    console.log(`🔑 Default Admin: admin@kpns.org / admin123`);
+    console.log(`🔑 Default Admin: kpnsclub@gmail.com / admin123`);
     console.log(`=======================================================`);
   });
 
@@ -71,4 +78,10 @@ function startServer(portToTry) {
   });
 }
 
-startServer(PORT);
+// Only listen on port if executed directly (local development)
+if (require.main === module) {
+  startServer(PORT);
+}
+
+module.exports = app;
+

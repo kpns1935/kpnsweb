@@ -312,18 +312,36 @@ async function initDb() {
   }
 }
 
+// Sanitize parameters for PostgreSQL compatibility (converts DD/MM/YYYY to YYYY-MM-DD and empty string dates to null)
+function sanitizeParam(val) {
+  if (typeof val !== 'string') return val;
+  const str = val.trim();
+  if (!str) return null; // empty strings -> null (prevents invalid syntax for date/numeric columns in PG)
+  
+  // DD/MM/YYYY or DD-MM-YYYY -> YYYY-MM-DD
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmyMatch) {
+    const day = dmyMatch[1].padStart(2, '0');
+    const month = dmyMatch[2].padStart(2, '0');
+    const year = dmyMatch[3];
+    return `${year}-${month}-${day}`;
+  }
+  return str;
+}
+
 // Universal Query Interface
 const db = {
   isSupabase: Boolean(pgPool || supabaseClient),
   supabase: supabaseClient,
 
   async queryAll(sql, params = []) {
+    const cleanParams = params.map(sanitizeParam);
     if (pgPool) {
       const pgSql = convertSqliteToPg(sql);
-      const res = await pgPool.query(pgSql, params);
+      const res = await pgPool.query(pgSql, cleanParams);
       return res.rows;
     } else if (supabaseClient) {
-      return runSupabaseRest(sql, params, 'all');
+      return runSupabaseRest(sql, cleanParams, 'all');
     }
     return new Promise((resolve, reject) => {
       sqliteDb.all(sql, params, (err, rows) => {
@@ -334,12 +352,13 @@ const db = {
   },
 
   async queryOne(sql, params = []) {
+    const cleanParams = params.map(sanitizeParam);
     if (pgPool) {
       const pgSql = convertSqliteToPg(sql);
-      const res = await pgPool.query(pgSql, params);
+      const res = await pgPool.query(pgSql, cleanParams);
       return res.rows[0] || null;
     } else if (supabaseClient) {
-      return runSupabaseRest(sql, params, 'one');
+      return runSupabaseRest(sql, cleanParams, 'one');
     }
     return new Promise((resolve, reject) => {
       sqliteDb.get(sql, params, (err, row) => {
@@ -350,17 +369,18 @@ const db = {
   },
 
   async execute(sql, params = []) {
+    const cleanParams = params.map(sanitizeParam);
     if (pgPool) {
       let pgSql = convertSqliteToPg(sql);
       const isInsert = sql.trim().toUpperCase().startsWith('INSERT');
       if (isInsert && !pgSql.toUpperCase().includes('RETURNING')) {
         pgSql += ' RETURNING id';
       }
-      const res = await pgPool.query(pgSql, params);
+      const res = await pgPool.query(pgSql, cleanParams);
       const lastID = (isInsert && res.rows[0]) ? res.rows[0].id : null;
       return { lastID, changes: res.rowCount };
     } else if (supabaseClient) {
-      return runSupabaseRest(sql, params, 'execute');
+      return runSupabaseRest(sql, cleanParams, 'execute');
     }
     return new Promise((resolve, reject) => {
       sqliteDb.run(sql, params, function (err) {

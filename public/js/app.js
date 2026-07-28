@@ -312,13 +312,23 @@ function parseExcelFile(event) {
 
     // Fix date parsing for backend compatibility (YYYY-MM-DD)
     const formatExcelDate = (val) => {
-      if (!val) return '';
+      if (!val) return null;
       if (val instanceof Date) return val.toISOString().slice(0, 10);
       if (typeof val === 'number') {
         const d = new Date(Math.round((val - 25569) * 86400 * 1000));
         return d.toISOString().slice(0, 10);
       }
-      return String(val);
+      const str = String(val).trim();
+      if (!str) return null;
+      // Convert DD/MM/YYYY or DD-MM-YYYY to YYYY-MM-DD
+      const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmyMatch) {
+        const day = dmyMatch[1].padStart(2, '0');
+        const month = dmyMatch[2].padStart(2, '0');
+        const year = dmyMatch[3];
+        return `${year}-${month}-${day}`;
+      }
+      return str;
     };
 
     parsedExcelMembers = parsedExcelMembers.map(m => {

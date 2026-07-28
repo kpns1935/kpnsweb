@@ -1,31 +1,28 @@
-const sqlite3 = require('sqlite3').verbose();
-const { Pool } = require('pg');
+require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
+const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 
-// Check for Supabase / PostgreSQL configuration
 const pgConnectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const isSupabaseConfigured = Boolean(pgConnectionString || (supabaseUrl && supabaseKey));
 
 let pgPool = null;
 let supabaseClient = null;
 let sqliteDb = null;
 
-if (pgConnectionString) {
+if (pgConnectionString && !pgConnectionString.includes('[YOUR-PASSWORD]')) {
   pgPool = new Pool({
     connectionString: pgConnectionString,
     ssl: { rejectUnauthorized: false }
   });
-  console.log('✅ Supabase PostgreSQL Database Connected via Connection Pool!');
+  console.log('✅ Supabase PostgreSQL Pool Connected!');
 } else if (supabaseUrl && supabaseKey) {
   supabaseClient = createClient(supabaseUrl, supabaseKey);
-  console.log('✅ Supabase Client Initialized!');
+  console.log('✅ Supabase Client Connected! Storing all data in Supabase.');
 } else {
-  // Local SQLite fallback
+  // Local SQLite fallback ONLY if no Supabase parameters are supplied
   let dbPath = path.join(__dirname, '..', 'kpns.db');
   if (process.env.VERCEL || process.env.NOW_REGION) {
     const tmpPath = path.join('/tmp', 'kpns.db');
@@ -38,14 +35,121 @@ if (pgConnectionString) {
     }
     dbPath = tmpPath;
   }
+  const sqlite3 = require('sqlite3').verbose();
   sqliteDb = new sqlite3.Database(dbPath);
-  console.log('ℹ️ Running with SQLite database at:', dbPath);
+  console.log('ℹ️ Running with local SQLite database at:', dbPath);
 }
 
 // Convert SQLite '?' placeholders to PostgreSQL '$1, $2...'
 function convertSqliteToPg(sql) {
   let paramIndex = 1;
   return sql.replace(/\?/g, () => `$${paramIndex++}`);
+}
+
+// Extract table name from SQL
+function getTableName(sql) {
+  const cleanSql = sql.trim();
+  const fromMatch = cleanSql.match(/from\s+([a-z0-9_]+)/i);
+  const intoMatch = cleanSql.match(/into\s+([a-z0-9_]+)/i);
+  const updateMatch = cleanSql.match(/update\s+([a-z0-9_]+)/i);
+  if (fromMatch) return fromMatch[1];
+  if (intoMatch) return intoMatch[1];
+  if (updateMatch) return updateMatch[1];
+  return 'members';
+}
+
+// Execute query via Supabase REST API Client
+async function runSupabaseRest(sql, params = [], type = 'all') {
+  const cleanSql = sql.trim();
+  const lowerSql = cleanSql.toLowerCase();
+  const table = getTableName(cleanSql);
+
+  // 1. SELECT COUNT(*)
+  if (lowerSql.includes('count(*)')) {
+    const { count, error } = await supabaseClient.from(table).select('*', { count: 'exact', head: true });
+    if (error) throw new Error(error.message);
+    const result = [{ count: count || 0 }];
+    return type === 'one' ? result[0] : result;
+  }
+
+  // 2. SELECT
+  if (lowerSql.startsWith('select')) {
+    let query = supabaseClient.from(table).select('*');
+
+    // Parse simple equality WHERE clauses (e.g. WHERE email = ?, WHERE id = ?, etc.)
+    const whereMatch = cleanSql.match(/where\s+([a-z0-9_]+)\s*=\s*\?/i);
+    if (whereMatch && params.length > 0) {
+      const col = whereMatch[1];
+      query = query.eq(col, params[0]);
+    }
+
+    // ORDER BY
+    if (lowerSql.includes('order by id desc')) {
+      query = query.order('id', { ascending: false });
+    } else if (lowerSql.includes('order by id asc')) {
+      query = query.order('id', { ascending: true });
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    if (type === 'one') {
+      return (data && data.length > 0) ? data[0] : null;
+    }
+    return data || [];
+  }
+
+  // 3. INSERT
+  if (lowerSql.startsWith('insert')) {
+    const colsMatch = cleanSql.match(/\(([^)]+)\)\s*values/i);
+    if (colsMatch && params.length > 0) {
+      const cols = colsMatch[1].split(',').map(c => c.trim());
+      const rowObj = {};
+      cols.forEach((col, idx) => {
+        rowObj[col] = params[idx];
+      });
+      const { data, error } = await supabaseClient.from(table).insert([rowObj]).select();
+      if (error) throw new Error(error.message);
+      const inserted = (data && data[0]) ? data[0] : {};
+      return { lastID: inserted.id || null, changes: 1 };
+    }
+  }
+
+  // 4. UPDATE
+  if (lowerSql.startsWith('update')) {
+    const whereIdMatch = cleanSql.match(/where\s+([a-z0-9_]+)\s*=\s*\?/i);
+    if (whereIdMatch && params.length > 0) {
+      const whereCol = whereIdMatch[1];
+      const whereVal = params[params.length - 1];
+
+      const setMatch = cleanSql.match(/set\s+(.+?)\s+where/i);
+      if (setMatch) {
+        const setClause = setMatch[1];
+        const setCols = setClause.split(',').map(c => c.split('=')[0].trim());
+        const updateObj = {};
+        setCols.forEach((col, idx) => {
+          updateObj[col] = params[idx];
+        });
+        const { data, error } = await supabaseClient.from(table).update(updateObj).eq(whereCol, whereVal).select();
+        if (error) throw new Error(error.message);
+        return { changes: data ? data.length : 1 };
+      }
+    }
+  }
+
+  // 5. DELETE
+  if (lowerSql.startsWith('delete')) {
+    const whereIdMatch = cleanSql.match(/where\s+([a-z0-9_]+)\s*=\s*\?/i);
+    if (whereIdMatch && params.length > 0) {
+      const whereCol = whereIdMatch[1];
+      const whereVal = params[0];
+      const { data, error } = await supabaseClient.from(table).delete().eq(whereCol, whereVal).select();
+      if (error) throw new Error(error.message);
+      return { changes: data ? data.length : 1 };
+    }
+  }
+
+  return [];
 }
 
 async function initDb() {
@@ -133,12 +237,27 @@ async function initDb() {
           ON CONFLICT (email) 
           DO UPDATE SET name = 'KPNS Admin', password = 'admin123', role = 'admin';
         `);
-        console.log('✅ Supabase PostgreSQL tables and default admin verified successfully!');
+        console.log('✅ Supabase PostgreSQL tables and default admin verified!');
       } finally {
         client.release();
       }
     } catch (err) {
       console.error('Error initializing Supabase PostgreSQL tables:', err);
+    }
+  } else if (supabaseClient) {
+    try {
+      // Seed default admin via Supabase REST API
+      const { data } = await supabaseClient.from('users').select('*').eq('email', 'kpnsclub@gmail.com');
+      if (!data || data.length === 0) {
+        await supabaseClient.from('users').insert([
+          { name: 'KPNS Admin', email: 'kpnsclub@gmail.com', password: 'admin123', role: 'admin' }
+        ]);
+        console.log('✅ Default admin seeded in Supabase: kpnsclub@gmail.com / admin123');
+      } else {
+        console.log('✅ Default admin verified in Supabase: kpnsclub@gmail.com / admin123');
+      }
+    } catch (err) {
+      console.error('Supabase init check notice:', err.message);
     }
   } else if (sqliteDb) {
     return new Promise((resolve, reject) => {
@@ -174,79 +293,6 @@ async function initDb() {
           )
         `);
 
-        const alterCols = [
-          `ALTER TABLE members ADD COLUMN form_no TEXT`,
-          `ALTER TABLE members ADD COLUMN father_name TEXT`,
-          `ALTER TABLE members ADD COLUMN date_of_admission DATE`,
-          `ALTER TABLE members ADD COLUMN aadhaar_number TEXT`,
-          `ALTER TABLE members ADD COLUMN blood_group TEXT`,
-          `ALTER TABLE members ADD COLUMN alternative_number TEXT`,
-          `ALTER TABLE members ADD COLUMN dob DATE`,
-          `ALTER TABLE members ADD COLUMN member_status TEXT DEFAULT 'Active'`
-        ];
-        alterCols.forEach(cmd => { sqliteDb.run(cmd, () => {}); });
-
-        sqliteDb.run(`
-          CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT,
-            contribution_amount REAL NOT NULL,
-            event_date DATE NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-
-        sqliteDb.run(`
-          CREATE TABLE IF NOT EXISTS event_dues (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_id INTEGER NOT NULL,
-            member_id INTEGER NOT NULL,
-            amount REAL NOT NULL,
-            paid_amount REAL DEFAULT 0,
-            status TEXT DEFAULT 'pending',
-            FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
-            FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
-          )
-        `);
-
-        sqliteDb.run(`
-          CREATE TABLE IF NOT EXISTS transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            receipt_no TEXT UNIQUE NOT NULL,
-            member_id INTEGER,
-            outside_person_name TEXT,
-            outside_person_phone TEXT,
-            event_id INTEGER,
-            due_id INTEGER,
-            type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            payment_mode TEXT DEFAULT 'Cash',
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (member_id) REFERENCES members(id),
-            FOREIGN KEY (event_id) REFERENCES events(id),
-            FOREIGN KEY (due_id) REFERENCES event_dues(id)
-          )
-        `);
-
-        sqliteDb.run(`
-          CREATE TABLE IF NOT EXISTS expenses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            voucher_no TEXT UNIQUE NOT NULL,
-            title TEXT NOT NULL,
-            category TEXT NOT NULL,
-            event_id INTEGER,
-            amount REAL NOT NULL,
-            paid_to TEXT,
-            payment_mode TEXT DEFAULT 'Cash',
-            expense_date DATE NOT NULL,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (event_id) REFERENCES events(id)
-          )
-        `);
-
         sqliteDb.get(`SELECT * FROM users WHERE email = 'kpnsclub@gmail.com'`, [], (err, row) => {
           if (err) return reject(err);
           if (!row) {
@@ -268,7 +314,7 @@ async function initDb() {
 
 // Universal Query Interface
 const db = {
-  isSupabase: isSupabaseConfigured,
+  isSupabase: Boolean(pgPool || supabaseClient),
   supabase: supabaseClient,
 
   async queryAll(sql, params = []) {
@@ -276,6 +322,8 @@ const db = {
       const pgSql = convertSqliteToPg(sql);
       const res = await pgPool.query(pgSql, params);
       return res.rows;
+    } else if (supabaseClient) {
+      return runSupabaseRest(sql, params, 'all');
     }
     return new Promise((resolve, reject) => {
       sqliteDb.all(sql, params, (err, rows) => {
@@ -290,6 +338,8 @@ const db = {
       const pgSql = convertSqliteToPg(sql);
       const res = await pgPool.query(pgSql, params);
       return res.rows[0] || null;
+    } else if (supabaseClient) {
+      return runSupabaseRest(sql, params, 'one');
     }
     return new Promise((resolve, reject) => {
       sqliteDb.get(sql, params, (err, row) => {
@@ -309,6 +359,8 @@ const db = {
       const res = await pgPool.query(pgSql, params);
       const lastID = (isInsert && res.rows[0]) ? res.rows[0].id : null;
       return { lastID, changes: res.rowCount };
+    } else if (supabaseClient) {
+      return runSupabaseRest(sql, params, 'execute');
     }
     return new Promise((resolve, reject) => {
       sqliteDb.run(sql, params, function (err) {

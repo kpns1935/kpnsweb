@@ -80,7 +80,15 @@ CREATE TABLE IF NOT EXISTS expenses (
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. Insert/Verify Default Admin User
+-- 7. Disable Row-Level Security (RLS) for backend access across all tables
+ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+ALTER TABLE members DISABLE ROW LEVEL SECURITY;
+ALTER TABLE events DISABLE ROW LEVEL SECURITY;
+ALTER TABLE event_dues DISABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE expenses DISABLE ROW LEVEL SECURITY;
+
+-- 8. Insert/Verify Default Admin User
 INSERT INTO users (name, email, password, role)
 VALUES ('KPNS Admin', 'kpnsclub@gmail.com', 'admin123', 'admin')
 ON CONFLICT (email) 

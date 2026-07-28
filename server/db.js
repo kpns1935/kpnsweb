@@ -5,8 +5,8 @@ const path = require('path');
 const fs = require('fs');
 
 const pgConnectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
-const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://mumigktobshxonccrsxm.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || 'sb_publishable_3g4zniHPGQF2Kf9TjJzmlw_vTSb1dLM';
 
 let pgPool = null;
 let supabaseClient = null;
@@ -20,7 +20,7 @@ if (pgConnectionString && !pgConnectionString.includes('[YOUR-PASSWORD]')) {
   console.log('✅ Supabase PostgreSQL Pool Connected!');
 } else if (supabaseUrl && supabaseKey) {
   supabaseClient = createClient(supabaseUrl, supabaseKey);
-  console.log('✅ Supabase Client Connected! Storing all data in Supabase.');
+  console.log('✅ Supabase Client Connected (mumigktobshxonccrsxm)! Storing all data in Supabase.');
 } else {
   // Local SQLite fallback ONLY if no Supabase parameters are supplied
   let dbPath = path.join(__dirname, '..', 'kpns.db');

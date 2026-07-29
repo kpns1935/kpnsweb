@@ -5,23 +5,46 @@ const db = require('../db');
 // List all members with total pending dues and total paid amounts
 router.get('/', async (req, res) => {
   try {
-    const members = await db.queryAll(`
-      SELECT 
-        m.*,
-        COALESCE(SUM(d.amount), 0) AS total_dues_imposed,
-        COALESCE(SUM(d.paid_amount), 0) AS total_dues_paid,
-        (COALESCE(SUM(d.amount), 0) - COALESCE(SUM(d.paid_amount), 0)) AS current_due_balance,
-        (
-          SELECT COALESCE(SUM(amount), 0) 
-          FROM transactions 
-          WHERE member_id = m.id AND type = 'member_donation'
-        ) AS total_donations
-      FROM members m
-      LEFT JOIN event_dues d ON m.id = d.member_id
-      GROUP BY m.id
-      ORDER BY m.name ASC
-    `);
-    res.json(members);
+    const members = await db.queryAll('SELECT * FROM members');
+    const eventDues = await db.queryAll('SELECT * FROM event_dues');
+    const transactions = await db.queryAll('SELECT * FROM transactions');
+
+    const duesMap = {};
+    for (const d of eventDues) {
+      if (!duesMap[d.member_id]) {
+        duesMap[d.member_id] = { imposed: 0, paid: 0 };
+      }
+      duesMap[d.member_id].imposed += (parseFloat(d.amount) || 0);
+      duesMap[d.member_id].paid += (parseFloat(d.paid_amount) || 0);
+    }
+
+    const donationMap = {};
+    for (const t of transactions) {
+      if (t.type === 'member_donation') {
+        if (!donationMap[t.member_id]) donationMap[t.member_id] = 0;
+        donationMap[t.member_id] += (parseFloat(t.amount) || 0);
+      }
+    }
+
+    const result = members.map(m => {
+      const duesInfo = duesMap[m.id] || { imposed: 0, paid: 0 };
+      const total_dues_imposed = duesInfo.imposed;
+      const total_dues_paid = duesInfo.paid;
+      const current_due_balance = total_dues_imposed - total_dues_paid;
+      const total_donations = donationMap[m.id] || 0;
+
+      return {
+        ...m,
+        total_dues_imposed,
+        total_dues_paid,
+        current_due_balance,
+        total_donations
+      };
+    });
+
+    result.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

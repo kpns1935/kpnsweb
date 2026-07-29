@@ -44,6 +44,79 @@ function getTableName(sql) {
   return 'members';
 }
 
+// Apply generic SQL WHERE clause parameters to Supabase query builder
+function applyWhereFilters(query, sql, params) {
+  if (!params || params.length === 0) return query;
+
+  // Clean SQL string by stripping wrapper functions like LOWER(), UPPER(), date(), and table prefixes
+  let cleanSql = sql.replace(/LOWER\(([^)]+)\)/gi, '$1')
+                    .replace(/UPPER\(([^)]+)\)/gi, '$1')
+                    .replace(/date\(([^)]+)\)/gi, '$1');
+
+  const whereSplit = cleanSql.split(/where\s+/i);
+  if (whereSplit.length < 2) return query;
+
+  const whereBody = whereSplit[1].split(/order by|group by|limit/i)[0];
+
+  // Match condition clauses (e.g. col = ?, col != ?, col >= ?, col <= ?, col LIKE ?, col IN (?, ?))
+  const condRegex = /([a-z0-9_\.]+)\s*(=|!=|>=|<=|>|<|like|ilike|in\s*\([^)]*\))\s*(\?|\([^)]*\))/gi;
+  let match;
+  let paramIdx = 0;
+
+  while ((match = condRegex.exec(whereBody)) !== null) {
+    let rawCol = match[1].trim();
+    let col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
+    const op = match[2].trim().toLowerCase();
+
+    if (op === '=') {
+      if (paramIdx < params.length) {
+        query = query.eq(col, params[paramIdx]);
+        paramIdx++;
+      }
+    } else if (op === '!=') {
+      if (paramIdx < params.length) {
+        query = query.neq(col, params[paramIdx]);
+        paramIdx++;
+      }
+    } else if (op === '>=') {
+      if (paramIdx < params.length) {
+        query = query.gte(col, params[paramIdx]);
+        paramIdx++;
+      }
+    } else if (op === '<=') {
+      if (paramIdx < params.length) {
+        query = query.lte(col, params[paramIdx]);
+        paramIdx++;
+      }
+    } else if (op === '>') {
+      if (paramIdx < params.length) {
+        query = query.gt(col, params[paramIdx]);
+        paramIdx++;
+      }
+    } else if (op === '<') {
+      if (paramIdx < params.length) {
+        query = query.lt(col, params[paramIdx]);
+        paramIdx++;
+      }
+    } else if (op === 'like' || op === 'ilike') {
+      if (paramIdx < params.length) {
+        query = query.ilike(col, params[paramIdx]);
+        paramIdx++;
+      }
+    } else if (op.startsWith('in')) {
+      const matchClause = match[0];
+      const qCount = (matchClause.match(/\?/g) || []).length;
+      if (qCount > 0 && paramIdx < params.length) {
+        const sliceVals = params.slice(paramIdx, paramIdx + qCount);
+        query = query.in(col, sliceVals);
+        paramIdx += qCount;
+      }
+    }
+  }
+
+  return query;
+}
+
 // Execute query via Supabase REST API Client
 async function runSupabaseRest(sql, params = [], type = 'all') {
   if (!supabaseClient) {
@@ -57,18 +130,7 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
   // 1. SELECT COUNT(*)
   if (lowerSql.includes('count(*)')) {
     let query = supabaseClient.from(table).select('*', { count: 'exact', head: true });
-    
-    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
-    if (whereMatch && params.length > 0) {
-      const col = whereMatch[1].replace(/^[a-z0-9_]+\./i, '');
-      query = query.eq(col, params[0]);
-    }
-    
-    const likeMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s+like\s+\?/i);
-    if (likeMatch && params.length > 0) {
-      const col = likeMatch[1].replace(/^[a-z0-9_]+\./i, '');
-      query = query.ilike(col, params[0]);
-    }
+    query = applyWhereFilters(query, cleanSql, params);
 
     const { count, error } = await query;
     if (error) throw new Error(error.message);
@@ -79,12 +141,7 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
   // 2. SELECT SUM(...) / COALESCE(SUM(...))
   if (lowerSql.includes('sum(')) {
     let query = supabaseClient.from(table).select('*');
-    
-    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
-    if (whereMatch && params.length > 0) {
-      const col = whereMatch[1].replace(/^[a-z0-9_]+\./i, '');
-      query = query.eq(col, params[0]);
-    }
+    query = applyWhereFilters(query, cleanSql, params);
 
     if (lowerSql.includes("type in ('member_donation', 'outside_donation')")) {
       query = query.in('type', ['member_donation', 'outside_donation']);
@@ -121,35 +178,10 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
 
     let query = supabaseClient.from(table).select(selectFields);
 
-    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
-    if (whereMatch && params.length > 0) {
-      const rawCol = whereMatch[1];
-      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
-      query = query.eq(col, params[0]);
-    }
+    // Apply generic WHERE filters
+    query = applyWhereFilters(query, cleanSql, params);
 
-    const inMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s+in\s*\(([^)]+)\)/i);
-    if (inMatch && params.length > 0) {
-      const rawCol = inMatch[1];
-      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
-      query = query.in(col, params);
-    }
-
-    const gteMatch = cleanSql.match(/([a-z0-9_\.]+)\s*>=\s*\?/i);
-    if (gteMatch && params.length > 0) {
-      const rawCol = gteMatch[1];
-      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
-      query = query.gte(col, params[0]);
-    }
-
-    const lteMatch = cleanSql.match(/([a-z0-9_\.]+)\s*<=\s*\?/i);
-    if (lteMatch && params.length > 0) {
-      const rawCol = lteMatch[1];
-      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
-      const paramVal = params[params.length - 1];
-      query = query.lte(col, paramVal);
-    }
-
+    // ORDER BY
     if (lowerSql.includes('order by')) {
       if (lowerSql.includes('id desc')) {
         query = query.order('id', { ascending: false });
@@ -208,51 +240,34 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
 
   // 5. UPDATE
   if (lowerSql.startsWith('update')) {
-    const whereIdMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
-    if (whereIdMatch && params.length > 0) {
-      const rawCol = whereIdMatch[1];
-      const whereCol = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
+    const setMatch = cleanSql.match(/set\s+(.+?)\s+where/i);
+    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
+    if (setMatch && whereMatch && params.length > 0) {
+      const setClause = setMatch[1];
+      const setCols = setClause.split(',').map(c => c.split('=')[0].trim());
+      const updateObj = {};
+      setCols.forEach((col, idx) => {
+        updateObj[col] = params[idx];
+      });
+
+      let rawCol = whereMatch[1];
+      let whereCol = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
       const whereVal = params[params.length - 1];
 
-      const setMatch = cleanSql.match(/set\s+(.+?)\s+where/i);
-      if (setMatch) {
-        const setClause = setMatch[1];
-        const setCols = setClause.split(',').map(c => c.split('=')[0].trim());
-        const updateObj = {};
-        setCols.forEach((col, idx) => {
-          updateObj[col] = params[idx];
-        });
-        const { data, error } = await supabaseClient.from(table).update(updateObj).eq(whereCol, whereVal).select();
-        if (error) throw new Error(error.message);
-        return { changes: data ? data.length : 1 };
-      }
+      const { data, error } = await supabaseClient.from(table).update(updateObj).eq(whereCol, whereVal).select();
+      if (error) throw new Error(error.message);
+      return { changes: data ? data.length : 1 };
     }
   }
 
   // 6. DELETE
   if (lowerSql.startsWith('delete')) {
     let query = supabaseClient.from(table).delete();
-    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*([=!<]+)\s*\?/i);
-    if (whereMatch && params.length > 0) {
-      const rawCol = whereMatch[1];
-      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
-      const op = whereMatch[2];
-      const val = params[0];
+    query = applyWhereFilters(query, cleanSql, params);
 
-      if (op === '!=') {
-        query = query.neq(col, val);
-      } else {
-        query = query.eq(col, val);
-      }
-
-      const { data, error } = await query.select();
-      if (error) throw new Error(error.message);
-      return { changes: data ? data.length : 1 };
-    } else if (lowerSql === `delete from ${table}`) {
-      const { data, error } = await query.neq('id', 0).select();
-      if (error) throw new Error(error.message);
-      return { changes: data ? data.length : 1 };
-    }
+    const { data, error } = await query.select();
+    if (error) throw new Error(error.message);
+    return { changes: data ? data.length : 1 };
   }
 
   return [];

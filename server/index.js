@@ -54,18 +54,19 @@ app.use('/api/backup', requireAuth, backupRoutes);
 
 
 function startServer(portToTry) {
-  const server = app.listen(portToTry, () => {
+  const numericPort = parseInt(portToTry, 10) || 3001;
+  const server = app.listen(numericPort, () => {
     console.log(`=======================================================`);
     console.log(`🚀 KPNS Organization Web Application is running!`);
-    console.log(`🌐 Local URL: http://localhost:${portToTry}`);
+    console.log(`🌐 Local URL: http://localhost:${numericPort}`);
     console.log(`🔑 Default Admin: kpnsclub@gmail.com / admin123`);
     console.log(`=======================================================`);
   });
 
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.log(`Port ${portToTry} is in use, trying port ${portToTry + 1}...`);
-      startServer(portToTry + 1);
+      console.log(`Port ${numericPort} is in use, trying port ${numericPort + 1}...`);
+      startServer(numericPort + 1);
     } else {
       console.error('Server error:', err);
     }

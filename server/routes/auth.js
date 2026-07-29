@@ -10,9 +10,9 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    const user = await db.queryOne('SELECT * FROM users WHERE email = ?', [email.toLowerCase().trim()]);
+    const user = await db.queryOne('SELECT * FROM users WHERE LOWER(email) = ?', [email.toLowerCase().trim()]);
     if (!user || user.password !== password) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Invalid credentials. Please check your email and password.' });
     }
 
     req.session.user = {

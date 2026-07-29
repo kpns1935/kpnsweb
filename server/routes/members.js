@@ -298,59 +298,70 @@ router.get('/:id/passbook', async (req, res) => {
     const fromTs = `${fromFilter} 00:00:00`;
     const toTs = `${toFilter} 23:59:59`;
 
+    // Fetch all dues and transactions for this member
+    const allMemberDues = await db.queryAll('SELECT * FROM event_dues WHERE member_id = ?', [memberId]);
+    const allMemberTransactions = await db.queryAll('SELECT * FROM transactions WHERE member_id = ?', [memberId]);
+
     // 1. Calculate PREVIOUS BALANCE before from_date
-    // Dues imposed before from_date (+) minus Dues payments before from_date (-)
-    const prevDues = await db.queryOne(
-      `SELECT COALESCE(SUM(ed.amount), 0) as total FROM event_dues ed
-       JOIN events e ON ed.event_id = e.id
-       WHERE ed.member_id = ? AND e.event_date < ?`,
-      [memberId, fromFilter]
-    );
+    let previousDueBalance = 0;
+    let prevDonationsTotal = 0;
 
-    const prevPayments = await db.queryOne(
-      `SELECT COALESCE(SUM(t.amount), 0) as total FROM transactions t
-       WHERE t.member_id = ? AND t.type = 'member_payment' AND t.created_at < ?`,
-      [memberId, fromTs]
-    );
+    for (const d of allMemberDues) {
+      const eventDate = d.event_date || (d.events ? d.events.event_date : '');
+      if (eventDate && eventDate < fromFilter) {
+        previousDueBalance += (parseFloat(d.amount) || 0);
+      }
+    }
 
-    const prevDonations = await db.queryOne(
-      `SELECT COALESCE(SUM(t.amount), 0) as total FROM transactions t
-       WHERE t.member_id = ? AND t.type = 'member_donation' AND t.created_at < ?`,
-      [memberId, fromTs]
-    );
+    for (const t of allMemberTransactions) {
+      const txDate = t.created_at ? t.created_at.slice(0, 10) : '';
+      if (txDate && txDate < fromFilter) {
+        if (t.type === 'member_payment') {
+          previousDueBalance -= (parseFloat(t.amount) || 0);
+        } else if (t.type === 'member_donation') {
+          prevDonationsTotal += (parseFloat(t.amount) || 0);
+        }
+      }
+    }
 
-    // Opening Due Balance = Prev Dues - Prev Dues Payments
-    const previousDueBalance = (prevDues.total || 0) - (prevPayments.total || 0);
+    // 2. Fetch entries within range [from_date, to_date]
+    const duesInRange = [];
+    for (const d of allMemberDues) {
+      const eventDate = d.event_date || (d.events ? d.events.event_date : '');
+      if (!eventDate || (eventDate >= fromFilter && eventDate <= toFilter)) {
+        duesInRange.push({
+          ref_id: d.id,
+          entry_type: 'DUE_IMPOSED',
+          description: d.event_title || (d.events ? d.events.title : 'Event Contribution'),
+          debit: parseFloat(d.amount) || 0,
+          credit: 0,
+          date: eventDate || new Date().toISOString().slice(0, 10)
+        });
+      }
+    }
 
-    const duesInRange = await db.queryAll(
-      `SELECT 
-        ed.id as ref_id,
-        'DUE_IMPOSED' as entry_type,
-        e.title as description,
-        ed.amount as debit,
-        0 as credit,
-        e.event_date as date
-       FROM event_dues ed
-       JOIN events e ON ed.event_id = e.id
-       WHERE ed.member_id = ? AND e.event_date >= ? AND e.event_date <= ?`,
-      [memberId, fromFilter, toFilter]
-    );
+    const transactionsInRange = [];
+    for (const t of allMemberTransactions) {
+      const txDate = t.created_at ? t.created_at.slice(0, 10) : '';
+      if (!txDate || (txDate >= fromFilter && txDate <= toFilter)) {
+        const isPayment = t.type === 'member_payment';
+        const entry_type = isPayment ? 'DUES_PAYMENT' : 'DONATION_PAYMENT';
+        const eventTitle = t.event_title || (t.events ? t.events.title : 'General Payment / Donation');
+        const notesStr = t.notes ? ` (${t.notes})` : '';
+        const description = `${t.receipt_no || 'REC'} - ${eventTitle}${notesStr}`;
 
-    const transactionsInRange = await db.queryAll(
-      `SELECT 
-        t.id as ref_id,
-        CASE WHEN t.type = 'member_payment' THEN 'DUES_PAYMENT' ELSE 'DONATION_PAYMENT' END as entry_type,
-        t.receipt_no || ' - ' || COALESCE(e.title, 'General Payment / Donation') || (CASE WHEN t.notes IS NOT NULL AND t.notes != '' THEN ' (' || t.notes || ')' ELSE '' END) as description,
-        0 as debit,
-        t.amount as credit,
-        t.created_at as date,
-        t.receipt_no,
-        t.type as tx_type
-       FROM transactions t
-       LEFT JOIN events e ON t.event_id = e.id
-       WHERE t.member_id = ? AND t.created_at >= ? AND t.created_at <= ?`,
-      [memberId, fromTs, toTs]
-    );
+        transactionsInRange.push({
+          ref_id: t.id,
+          entry_type,
+          description,
+          debit: 0,
+          credit: parseFloat(t.amount) || 0,
+          date: t.created_at || new Date().toISOString(),
+          receipt_no: t.receipt_no,
+          tx_type: t.type
+        });
+      }
+    }
 
     // Combine and sort chronologically
     const allEntries = [...duesInRange, ...transactionsInRange].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -363,8 +374,6 @@ router.get('/:id/passbook', async (req, res) => {
       } else if (item.entry_type === 'DUES_PAYMENT') {
         runningDueBalance -= item.credit;
       }
-      // Note: DONATION_PAYMENT displays credit amount on line, but running DUES balance is preserved as per prompt requirement:
-      // "when any member pay any donation this can be show on his passbook but it can not - from this dues."
       return {
         date: item.date,
         entry_type: item.entry_type,
@@ -381,7 +390,7 @@ router.get('/:id/passbook', async (req, res) => {
       from_date: fromFilter,
       to_date: toFilter,
       previous_due_balance: previousDueBalance,
-      previous_donations_total: prevDonations.total || 0,
+      previous_donations_total: prevDonationsTotal,
       entries: passbookLines,
       current_due_balance: runningDueBalance
     });

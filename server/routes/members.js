@@ -186,24 +186,44 @@ router.post('/bulk-upload', async (req, res) => {
     let currentCount = existingCountObj.count;
     const events = await db.queryAll('SELECT id, contribution_amount FROM events');
 
+    const cleanVal = (val, defaultVal = '') => {
+      if (val === null || val === undefined) return defaultVal;
+      const str = String(val).trim();
+      if (!str || str === '-' || str === '--' || str === 'N/A' || str === 'n/a') return defaultVal;
+      return str;
+    };
+
+    const cleanDateVal = (val, defaultVal = null) => {
+      const cleaned = cleanVal(val, null);
+      if (!cleaned) return defaultVal;
+      const dmyMatch = cleaned.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (dmyMatch) {
+        const day = dmyMatch[1].padStart(2, '0');
+        const month = dmyMatch[2].padStart(2, '0');
+        const year = dmyMatch[3];
+        return `${year}-${month}-${day}`;
+      }
+      return cleaned;
+    };
+
     let insertedCount = 0;
     for (const m of memberList) {
       currentCount++;
-      const name = m.name || m['REGISTER MEMBER'] || m['Name'] || m['Member Name'];
+      const name = cleanVal(m.name || m['REGISTER MEMBER'] || m['Name'] || m['Member Name']);
       if (!name) continue; // skip empty rows
 
-      const form_no = m.form_no || m['FORM NO'] || m['Form No'] || `F-${1000 + currentCount}`;
-      const member_code = m.member_code || m['MEMBER ID'] || m['Member Code'] || `KPNS-${String(currentCount).padStart(3, '0')}`;
-      const father_name = m.father_name || m['FATHER NAME OF MEMBER'] || m['Father Name'] || '';
-      const date_of_admission = m.date_of_admission || m['DATE OF ADMISSION'] || m['Admission Date'] || new Date().toISOString().slice(0, 10);
-      const phone = m.phone || m['MOBILE NO'] || m['Mobile No'] || m['Phone'] || '0000000000';
-      const email = m.email || m['EMAIL ID'] || m['Email'] || '';
-      const aadhaar_number = m.aadhaar_number || m['AADHAAR NUMBER'] || m['Aadhaar'] || '';
-      const blood_group = m.blood_group || m['BLOOD GROUP'] || m['Blood Group'] || 'O+';
-      const alternative_number = m.alternative_number || m['ALTERNATIVE NUMBER'] || m['Alt Mobile'] || '';
-      const dob = m.dob || m['DOB'] || m['Date of Birth'] || '';
-      const member_status = m.member_status || m['MEMBER STATUS'] || m['Status'] || 'Active';
-      const address = m.address || m['ADDRESS'] || m['Address'] || '';
+      const form_no = cleanVal(m.form_no || m['FORM NO'] || m['Form No'], `F-${1000 + currentCount}`);
+      const member_code = cleanVal(m.member_code || m['MEMBER ID'] || m['Member Code'], `KPNS-${String(currentCount).padStart(3, '0')}`);
+      const father_name = cleanVal(m.father_name || m['FATHER NAME OF MEMBER'] || m['Father Name']);
+      const date_of_admission = cleanDateVal(m.date_of_admission || m['DATE OF ADMISSION'] || m['Admission Date'], new Date().toISOString().slice(0, 10));
+      const phone = cleanVal(m.phone || m['MOBILE NO'] || m['Mobile No'] || m['Phone'], '0000000000');
+      const email = cleanVal(m.email || m['EMAIL ID'] || m['Email']);
+      const aadhaar_number = cleanVal(m.aadhaar_number || m['AADHAAR NUMBER'] || m['Aadhaar']);
+      const blood_group = cleanVal(m.blood_group || m['BLOOD GROUP'] || m['Blood Group'], 'O+');
+      const alternative_number = cleanVal(m.alternative_number || m['ALTERNATIVE NUMBER'] || m['Alt Mobile']);
+      const dob = cleanDateVal(m.dob || m['DOB'] || m['Date of Birth'], null);
+      const member_status = cleanVal(m.member_status || m['MEMBER STATUS'] || m['Status'], 'Active');
+      const address = cleanVal(m.address || m['ADDRESS'] || m['Address']);
 
       const result = await db.execute(
         `INSERT INTO members (
@@ -252,36 +272,32 @@ router.get('/:id/passbook', async (req, res) => {
     let fromFilter = from_date || '1970-01-01';
     let toFilter = to_date || '2099-12-31';
 
+    const fromTs = `${fromFilter} 00:00:00`;
+    const toTs = `${toFilter} 23:59:59`;
+
     // 1. Calculate PREVIOUS BALANCE before from_date
     // Dues imposed before from_date (+) minus Dues payments before from_date (-)
-    // Note: Member Donations are credited in receipts log but do not decrease event dues balance.
     const prevDues = await db.queryOne(
       `SELECT COALESCE(SUM(ed.amount), 0) as total FROM event_dues ed
        JOIN events e ON ed.event_id = e.id
-       WHERE ed.member_id = ? AND date(e.event_date) < date(?)`,
+       WHERE ed.member_id = ? AND e.event_date < ?`,
       [memberId, fromFilter]
     );
 
     const prevPayments = await db.queryOne(
       `SELECT COALESCE(SUM(t.amount), 0) as total FROM transactions t
-       WHERE t.member_id = ? AND t.type = 'member_payment' AND date(t.created_at) < date(?)`,
-      [memberId, fromFilter]
+       WHERE t.member_id = ? AND t.type = 'member_payment' AND t.created_at < ?`,
+      [memberId, fromTs]
     );
 
     const prevDonations = await db.queryOne(
       `SELECT COALESCE(SUM(t.amount), 0) as total FROM transactions t
-       WHERE t.member_id = ? AND t.type = 'member_donation' AND date(t.created_at) < date(?)`,
-      [memberId, fromFilter]
+       WHERE t.member_id = ? AND t.type = 'member_donation' AND t.created_at < ?`,
+      [memberId, fromTs]
     );
 
     // Opening Due Balance = Prev Dues - Prev Dues Payments
     const previousDueBalance = (prevDues.total || 0) - (prevPayments.total || 0);
-
-    // 2. Fetch entries within range [from_date, to_date]
-    // Entries comprise:
-    // a. Imposed Event Dues (Debit / Increase Dues)
-    // b. Member Dues Payments (Credit / Decrease Dues)
-    // c. Member Donations (Donation Record, shows in passbook, does NOT reduce Dues)
 
     const duesInRange = await db.queryAll(
       `SELECT 
@@ -293,7 +309,7 @@ router.get('/:id/passbook', async (req, res) => {
         e.event_date as date
        FROM event_dues ed
        JOIN events e ON ed.event_id = e.id
-       WHERE ed.member_id = ? AND date(e.event_date) BETWEEN date(?) AND date(?)`,
+       WHERE ed.member_id = ? AND e.event_date >= ? AND e.event_date <= ?`,
       [memberId, fromFilter, toFilter]
     );
 
@@ -309,8 +325,8 @@ router.get('/:id/passbook', async (req, res) => {
         t.type as tx_type
        FROM transactions t
        LEFT JOIN events e ON t.event_id = e.id
-       WHERE t.member_id = ? AND date(t.created_at) BETWEEN date(?) AND date(?)`,
-      [memberId, fromFilter, toFilter]
+       WHERE t.member_id = ? AND t.created_at >= ? AND t.created_at <= ?`,
+      [memberId, fromTs, toTs]
     );
 
     // Combine and sort chronologically

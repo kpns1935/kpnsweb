@@ -123,11 +123,21 @@ async function checkAuthSession() {
       if (appContainer) appContainer.style.display = 'block';
       
       if (roleBadge) roleBadge.innerText = data.user.role.toUpperCase();
+      const roleBadgeMobile = document.getElementById('userRoleBadgeMobile');
+      if (roleBadgeMobile) roleBadgeMobile.innerText = data.user.role.toUpperCase();
+      
       const nameDisplay = document.getElementById('userNameDisplay');
       if (nameDisplay) nameDisplay.innerText = data.user.name || data.user.email;
+      const nameDisplayMobile = document.getElementById('userNameDisplayMobile');
+      if (nameDisplayMobile) nameDisplayMobile.innerText = data.user.name || data.user.email;
+      
       if (authBtn) {
-        authBtn.innerText = 'Logout';
-        authBtn.className = 'btn btn-outline btn-sm';
+        authBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg> Logout';
+        authBtn.className = 'dropdown-item';
+      }
+      const authBtnMobile = document.getElementById('authBtnMobile');
+      if (authBtnMobile) {
+        authBtnMobile.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg> Logout';
       }
       
       // RBAC UI modifications for management roles
@@ -158,9 +168,16 @@ async function checkAuthSession() {
       if (loginPage) loginPage.classList.remove('hidden');
       
       if (roleBadge) roleBadge.innerText = 'GUEST';
+      const roleBadgeMobile = document.getElementById('userRoleBadgeMobile');
+      if (roleBadgeMobile) roleBadgeMobile.innerText = 'GUEST';
+      
       if (authBtn) {
-        authBtn.innerText = 'Login';
-        authBtn.className = 'btn btn-emerald btn-sm';
+        authBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg> Login';
+        authBtn.className = 'dropdown-item';
+      }
+      const authBtnMobile = document.getElementById('authBtnMobile');
+      if (authBtnMobile) {
+        authBtnMobile.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg> Login';
       }
     }
   } catch (err) {
@@ -1534,7 +1551,6 @@ async function deleteUser(id) {
 function toggleMobileMenu() {
   const nav = document.getElementById('mainNav');
   const overlay = document.getElementById('navOverlay');
-  const btn = document.getElementById('mobileMenuBtn');
   if (!nav) return;
 
   const isOpen = nav.classList.contains('mobile-active');
@@ -1543,17 +1559,79 @@ function toggleMobileMenu() {
   } else {
     nav.classList.add('mobile-active');
     if (overlay) overlay.classList.add('active');
-    if (btn) btn.innerText = '✕';
   }
 }
 
 function closeMobileMenu() {
   const nav = document.getElementById('mainNav');
   const overlay = document.getElementById('navOverlay');
-  const btn = document.getElementById('mobileMenuBtn');
   if (nav) nav.classList.remove('mobile-active');
   if (overlay) overlay.classList.remove('active');
-  if (btn) btn.innerText = '☰';
+}
+
+// User Dropdown logic
+function toggleUserDropdown(event) {
+  event.stopPropagation();
+  const container = document.getElementById('userDropdownContainer');
+  const toggleBtn = document.getElementById('userMenuToggle');
+  
+  if (container) {
+    const isOpen = container.classList.contains('open');
+    if (isOpen) {
+      container.classList.remove('open');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    } else {
+      container.classList.add('open');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+    }
+  }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(event) {
+  const container = document.getElementById('userDropdownContainer');
+  if (container && container.classList.contains('open') && !container.contains(event.target)) {
+    container.classList.remove('open');
+    const toggleBtn = document.getElementById('userMenuToggle');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+  }
+});
+
+// Close drawer on ESC key
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'Escape') {
+    closeMobileMenu();
+    
+    // Also close dropdown if open
+    const container = document.getElementById('userDropdownContainer');
+    if (container && container.classList.contains('open')) {
+      container.classList.remove('open');
+      const toggleBtn = document.getElementById('userMenuToggle');
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+    }
+  }
+});
+
+// Swipe-to-close gesture on mobile drawer
+let touchStartX = 0;
+let touchEndX = 0;
+document.addEventListener('touchstart', e => {
+  touchStartX = e.changedTouches[0].screenX;
+}, { passive: true });
+
+document.addEventListener('touchend', e => {
+  touchEndX = e.changedTouches[0].screenX;
+  handleSwipe();
+}, { passive: true });
+
+function handleSwipe() {
+  const nav = document.getElementById('mainNav');
+  if (!nav || !nav.classList.contains('mobile-active')) return;
+  
+  // Swipe Left to close (drawer slides in from left)
+  if (touchStartX - touchEndX > 50) {
+    closeMobileMenu();
+  }
 }
 
 function switchTab(tabId) {

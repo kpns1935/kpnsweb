@@ -1,8 +1,6 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { Pool } = require('pg');
-const path = require('path');
-const fs = require('fs');
 
 const pgConnectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
 const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://mumigktobshxonccrsxm.supabase.co';
@@ -10,7 +8,6 @@ const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY ||
 
 let pgPool = null;
 let supabaseClient = null;
-let sqliteDb = null;
 
 if (pgConnectionString && !pgConnectionString.includes('[YOUR-PASSWORD]')) {
   pgPool = new Pool({
@@ -20,33 +17,22 @@ if (pgConnectionString && !pgConnectionString.includes('[YOUR-PASSWORD]')) {
   console.log('✅ Supabase PostgreSQL Pool Connected!');
 } else if (supabaseUrl && supabaseKey) {
   supabaseClient = createClient(supabaseUrl, supabaseKey);
-  console.log('✅ Supabase Client Connected (mumigktobshxonccrsxm)! Storing all data in Supabase.');
+  console.log('✅ Supabase Client Connected (mumigktobshxonccrsxm)! Storing all data exclusively in Supabase.');
 } else {
-  // Local SQLite fallback ONLY if no Supabase parameters are supplied
-  let dbPath = path.join(__dirname, '..', 'kpns.db');
-  if (process.env.VERCEL || process.env.NOW_REGION) {
-    const tmpPath = path.join('/tmp', 'kpns.db');
-    if (fs.existsSync(dbPath) && !fs.existsSync(tmpPath)) {
-      try {
-        fs.copyFileSync(dbPath, tmpPath);
-      } catch (e) {
-        console.error('Error copying db file to /tmp:', e);
-      }
-    }
-    dbPath = tmpPath;
-  }
-  const sqlite3 = require('sqlite3').verbose();
-  sqliteDb = new sqlite3.Database(dbPath);
-  console.log('ℹ️ Running with local SQLite database at:', dbPath);
+  throw new Error('❌ Supabase configuration missing! Please provide SUPABASE_URL and SUPABASE_KEY.');
 }
 
 // Convert SQLite '?' placeholders to PostgreSQL '$1, $2...'
 function convertSqliteToPg(sql) {
+  let converted = sql.replace(/date\(([^)]+)\)/gi, (match, inner) => {
+    return `CAST(${inner} AS DATE)`;
+  });
   let paramIndex = 1;
-  return sql.replace(/\?/g, () => `$${paramIndex++}`);
+  converted = converted.replace(/\?/g, () => `$${paramIndex++}`);
+  return converted;
 }
 
-// Extract table name from SQL
+// Extract primary table name from SQL
 function getTableName(sql) {
   const cleanSql = sql.trim();
   const fromMatch = cleanSql.match(/from\s+([a-z0-9_]+)/i);
@@ -60,46 +46,151 @@ function getTableName(sql) {
 
 // Execute query via Supabase REST API Client
 async function runSupabaseRest(sql, params = [], type = 'all') {
+  if (!supabaseClient) {
+    throw new Error('Supabase client is not connected');
+  }
+
   const cleanSql = sql.trim();
   const lowerSql = cleanSql.toLowerCase();
   const table = getTableName(cleanSql);
 
   // 1. SELECT COUNT(*)
   if (lowerSql.includes('count(*)')) {
-    const { count, error } = await supabaseClient.from(table).select('*', { count: 'exact', head: true });
+    let query = supabaseClient.from(table).select('*', { count: 'exact', head: true });
+    
+    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
+    if (whereMatch && params.length > 0) {
+      const col = whereMatch[1].replace(/^[a-z0-9_]+\./i, '');
+      query = query.eq(col, params[0]);
+    }
+    
+    const likeMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s+like\s+\?/i);
+    if (likeMatch && params.length > 0) {
+      const col = likeMatch[1].replace(/^[a-z0-9_]+\./i, '');
+      query = query.ilike(col, params[0]);
+    }
+
+    const { count, error } = await query;
     if (error) throw new Error(error.message);
     const result = [{ count: count || 0 }];
     return type === 'one' ? result[0] : result;
   }
 
-  // 2. SELECT
-  if (lowerSql.startsWith('select')) {
+  // 2. SELECT SUM(...) / COALESCE(SUM(...))
+  if (lowerSql.includes('sum(')) {
     let query = supabaseClient.from(table).select('*');
-
-    // Parse simple equality WHERE clauses (e.g. WHERE email = ?, WHERE id = ?, etc.)
-    const whereMatch = cleanSql.match(/where\s+([a-z0-9_]+)\s*=\s*\?/i);
+    
+    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
     if (whereMatch && params.length > 0) {
-      const col = whereMatch[1];
+      const col = whereMatch[1].replace(/^[a-z0-9_]+\./i, '');
       query = query.eq(col, params[0]);
     }
 
-    // ORDER BY
-    if (lowerSql.includes('order by id desc')) {
-      query = query.order('id', { ascending: false });
-    } else if (lowerSql.includes('order by id asc')) {
-      query = query.order('id', { ascending: true });
+    if (lowerSql.includes("type in ('member_donation', 'outside_donation')")) {
+      query = query.in('type', ['member_donation', 'outside_donation']);
     }
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
-    if (type === 'one') {
-      return (data && data.length > 0) ? data[0] : null;
+    let total = 0;
+    if (data && data.length > 0) {
+      if (lowerSql.includes('amount - paid_amount')) {
+        total = data.reduce((acc, row) => acc + ((parseFloat(row.amount) || 0) - (parseFloat(row.paid_amount) || 0)), 0);
+      } else if (lowerSql.includes('paid_amount')) {
+        total = data.reduce((acc, row) => acc + (parseFloat(row.paid_amount) || 0), 0);
+      } else {
+        total = data.reduce((acc, row) => acc + (parseFloat(row.amount) || 0), 0);
+      }
     }
-    return data || [];
+
+    const result = [{ total }];
+    return type === 'one' ? result[0] : result;
   }
 
-  // 3. INSERT
+  // 3. SELECT (Standard / Joined queries)
+  if (lowerSql.startsWith('select')) {
+    let selectFields = '*';
+    if (table === 'transactions') {
+      selectFields = '*, members(name, member_code, phone), events(title)';
+    } else if (table === 'expenses') {
+      selectFields = '*, events(title)';
+    } else if (table === 'event_dues') {
+      selectFields = '*, members(name, member_code, phone), events(title, contribution_amount, event_date)';
+    }
+
+    let query = supabaseClient.from(table).select(selectFields);
+
+    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
+    if (whereMatch && params.length > 0) {
+      const rawCol = whereMatch[1];
+      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
+      query = query.eq(col, params[0]);
+    }
+
+    const inMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s+in\s*\(([^)]+)\)/i);
+    if (inMatch && params.length > 0) {
+      const rawCol = inMatch[1];
+      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
+      query = query.in(col, params);
+    }
+
+    const gteMatch = cleanSql.match(/([a-z0-9_\.]+)\s*>=\s*\?/i);
+    if (gteMatch && params.length > 0) {
+      const rawCol = gteMatch[1];
+      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
+      query = query.gte(col, params[0]);
+    }
+
+    const lteMatch = cleanSql.match(/([a-z0-9_\.]+)\s*<=\s*\?/i);
+    if (lteMatch && params.length > 0) {
+      const rawCol = lteMatch[1];
+      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
+      const paramVal = params[params.length - 1];
+      query = query.lte(col, paramVal);
+    }
+
+    if (lowerSql.includes('order by')) {
+      if (lowerSql.includes('id desc')) {
+        query = query.order('id', { ascending: false });
+      } else if (lowerSql.includes('id asc')) {
+        query = query.order('id', { ascending: true });
+      } else if (lowerSql.includes('created_at desc')) {
+        query = query.order('created_at', { ascending: false });
+      } else if (lowerSql.includes('created_at asc')) {
+        query = query.order('created_at', { ascending: true });
+      } else if (lowerSql.includes('expense_date desc')) {
+        query = query.order('expense_date', { ascending: false });
+      } else if (lowerSql.includes('expense_date asc')) {
+        query = query.order('expense_date', { ascending: true });
+      }
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    let rows = (data || []).map(item => {
+      const row = { ...item };
+      if (item.members) {
+        row.member_name = item.members.name;
+        row.member_code = item.members.member_code;
+        row.member_phone = item.members.phone;
+      }
+      if (item.events) {
+        row.event_title = item.events.title;
+        row.contribution_amount = item.events.contribution_amount;
+        row.event_date = item.events.event_date;
+      }
+      return row;
+    });
+
+    if (type === 'one') {
+      return (rows && rows.length > 0) ? rows[0] : null;
+    }
+    return rows;
+  }
+
+  // 4. INSERT
   if (lowerSql.startsWith('insert')) {
     const colsMatch = cleanSql.match(/\(([^)]+)\)\s*values/i);
     if (colsMatch && params.length > 0) {
@@ -115,11 +206,12 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
     }
   }
 
-  // 4. UPDATE
+  // 5. UPDATE
   if (lowerSql.startsWith('update')) {
-    const whereIdMatch = cleanSql.match(/where\s+([a-z0-9_]+)\s*=\s*\?/i);
+    const whereIdMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*=\s*\?/i);
     if (whereIdMatch && params.length > 0) {
-      const whereCol = whereIdMatch[1];
+      const rawCol = whereIdMatch[1];
+      const whereCol = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
       const whereVal = params[params.length - 1];
 
       const setMatch = cleanSql.match(/set\s+(.+?)\s+where/i);
@@ -137,13 +229,27 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
     }
   }
 
-  // 5. DELETE
+  // 6. DELETE
   if (lowerSql.startsWith('delete')) {
-    const whereIdMatch = cleanSql.match(/where\s+([a-z0-9_]+)\s*=\s*\?/i);
-    if (whereIdMatch && params.length > 0) {
-      const whereCol = whereIdMatch[1];
-      const whereVal = params[0];
-      const { data, error } = await supabaseClient.from(table).delete().eq(whereCol, whereVal).select();
+    let query = supabaseClient.from(table).delete();
+    const whereMatch = cleanSql.match(/where\s+([a-z0-9_\.]+)\s*([=!<]+)\s*\?/i);
+    if (whereMatch && params.length > 0) {
+      const rawCol = whereMatch[1];
+      const col = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
+      const op = whereMatch[2];
+      const val = params[0];
+
+      if (op === '!=') {
+        query = query.neq(col, val);
+      } else {
+        query = query.eq(col, val);
+      }
+
+      const { data, error } = await query.select();
+      if (error) throw new Error(error.message);
+      return { changes: data ? data.length : 1 };
+    } else if (lowerSql === `delete from ${table}`) {
+      const { data, error } = await query.neq('id', 0).select();
       if (error) throw new Error(error.message);
       return { changes: data ? data.length : 1 };
     }
@@ -246,7 +352,6 @@ async function initDb() {
     }
   } else if (supabaseClient) {
     try {
-      // Seed default admin via Supabase REST API
       const { data } = await supabaseClient.from('users').select('*').eq('email', 'kpnsclub@gmail.com');
       if (!data || data.length === 0) {
         await supabaseClient.from('users').insert([
@@ -259,66 +364,18 @@ async function initDb() {
     } catch (err) {
       console.error('Supabase init check notice:', err.message);
     }
-  } else if (sqliteDb) {
-    return new Promise((resolve, reject) => {
-      sqliteDb.serialize(() => {
-        sqliteDb.run(`
-          CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'admin',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-
-        sqliteDb.run(`
-          CREATE TABLE IF NOT EXISTS members (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            form_no TEXT,
-            member_code TEXT UNIQUE NOT NULL,
-            name TEXT NOT NULL,
-            father_name TEXT,
-            date_of_admission DATE,
-            phone TEXT NOT NULL,
-            email TEXT,
-            aadhaar_number TEXT,
-            blood_group TEXT,
-            alternative_number TEXT,
-            dob DATE,
-            member_status TEXT DEFAULT 'Active',
-            address TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-          )
-        `);
-
-        sqliteDb.get(`SELECT * FROM users WHERE email = 'kpnsclub@gmail.com'`, [], (err, row) => {
-          if (err) return reject(err);
-          if (!row) {
-            sqliteDb.run(
-              `INSERT INTO users (name, email, password, role) VALUES ('KPNS Admin', 'kpnsclub@gmail.com', 'admin123', 'admin')`
-            );
-          } else {
-            sqliteDb.run(
-              `UPDATE users SET name = 'KPNS Admin', password = 'admin123', role = 'admin' WHERE email = 'kpnsclub@gmail.com'`
-            );
-          }
-        });
-
-        resolve(sqliteDb);
-      });
-    });
   }
 }
 
-// Sanitize parameters for PostgreSQL compatibility (converts DD/MM/YYYY to YYYY-MM-DD and empty string dates to null)
+// Sanitize parameters for PostgreSQL compatibility (converts DD/MM/YYYY to YYYY-MM-DD and dashes/empty strings to null)
 function sanitizeParam(val) {
+  if (val === null || val === undefined) return null;
   if (typeof val !== 'string') return val;
   const str = val.trim();
-  if (!str) return null; // empty strings -> null (prevents invalid syntax for date/numeric columns in PG)
+  if (!str || str === '-' || str === '--' || str === 'N/A' || str === 'n/a' || str === 'null' || str === 'undefined') {
+    return null;
+  }
   
-  // DD/MM/YYYY or DD-MM-YYYY -> YYYY-MM-DD
   const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (dmyMatch) {
     const day = dmyMatch[1].padStart(2, '0');
@@ -329,9 +386,9 @@ function sanitizeParam(val) {
   return str;
 }
 
-// Universal Query Interface
+// Universal Query Interface (100% Supabase Backend)
 const db = {
-  isSupabase: Boolean(pgPool || supabaseClient),
+  isSupabase: true,
   supabase: supabaseClient,
 
   async queryAll(sql, params = []) {
@@ -340,15 +397,8 @@ const db = {
       const pgSql = convertSqliteToPg(sql);
       const res = await pgPool.query(pgSql, cleanParams);
       return res.rows;
-    } else if (supabaseClient) {
-      return runSupabaseRest(sql, cleanParams, 'all');
     }
-    return new Promise((resolve, reject) => {
-      sqliteDb.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
+    return runSupabaseRest(sql, cleanParams, 'all');
   },
 
   async queryOne(sql, params = []) {
@@ -357,15 +407,8 @@ const db = {
       const pgSql = convertSqliteToPg(sql);
       const res = await pgPool.query(pgSql, cleanParams);
       return res.rows[0] || null;
-    } else if (supabaseClient) {
-      return runSupabaseRest(sql, cleanParams, 'one');
     }
-    return new Promise((resolve, reject) => {
-      sqliteDb.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row || null);
-      });
-    });
+    return runSupabaseRest(sql, cleanParams, 'one');
   },
 
   async execute(sql, params = []) {
@@ -379,15 +422,8 @@ const db = {
       const res = await pgPool.query(pgSql, cleanParams);
       const lastID = (isInsert && res.rows[0]) ? res.rows[0].id : null;
       return { lastID, changes: res.rowCount };
-    } else if (supabaseClient) {
-      return runSupabaseRest(sql, cleanParams, 'execute');
     }
-    return new Promise((resolve, reject) => {
-      sqliteDb.run(sql, params, function (err) {
-        if (err) reject(err);
-        else resolve({ lastID: this.lastID, changes: this.changes });
-      });
-    });
+    return runSupabaseRest(sql, cleanParams, 'execute');
   }
 };
 

@@ -40,15 +40,18 @@ router.get('/yearly', async (req, res) => {
     const fromDate = `${year}-01-01`;
     const toDate = `${year}-12-31`;
 
+    const yearFromDate = `${year}-01-01`;
+    const yearToDate = `${year}-12-31 23:59:59`;
+
     const incomeBreakdown = await db.queryAll(`
       SELECT 
         type,
         COUNT(*) as count,
         COALESCE(SUM(amount), 0) as total_amount
       FROM transactions
-      WHERE strftime('%Y', created_at) = ?
+      WHERE created_at >= ? AND created_at <= ?
       GROUP BY type
-    `, [String(year)]);
+    `, [yearFromDate, yearToDate]);
 
     const expenseBreakdown = await db.queryAll(`
       SELECT 
@@ -56,26 +59,26 @@ router.get('/yearly', async (req, res) => {
         COUNT(*) as count,
         COALESCE(SUM(amount), 0) as total_amount
       FROM expenses
-      WHERE strftime('%Y', expense_date) = ?
+      WHERE expense_date >= ? AND expense_date <= ?
       GROUP BY category
-    `, [String(year)]);
+    `, [`${year}-01-01`, `${year}-12-31`]);
 
     const transactionsList = await db.queryAll(`
       SELECT t.*, m.name as member_name, e.title as event_title
       FROM transactions t
       LEFT JOIN members m ON t.member_id = m.id
       LEFT JOIN events e ON t.event_id = e.id
-      WHERE strftime('%Y', t.created_at) = ?
+      WHERE t.created_at >= ? AND t.created_at <= ?
       ORDER BY t.created_at ASC
-    `, [String(year)]);
+    `, [yearFromDate, yearToDate]);
 
     const expensesList = await db.queryAll(`
       SELECT ex.*, e.title as event_title
       FROM expenses ex
       LEFT JOIN events e ON ex.event_id = e.id
-      WHERE strftime('%Y', ex.expense_date) = ?
+      WHERE ex.expense_date >= ? AND ex.expense_date <= ?
       ORDER BY ex.expense_date ASC
-    `, [String(year)]);
+    `, [`${year}-01-01`, `${year}-12-31`]);
 
     let totalIncome = 0;
     incomeBreakdown.forEach(i => totalIncome += i.total_amount);
@@ -156,15 +159,18 @@ router.get('/custom', async (req, res) => {
       return res.status(400).json({ error: 'from_date and to_date query parameters required' });
     }
 
+    const fromTs = `${from_date} 00:00:00`;
+    const toTs = `${to_date} 23:59:59`;
+
     const incomeBreakdown = await db.queryAll(`
       SELECT 
         type,
         COUNT(*) as count,
         COALESCE(SUM(amount), 0) as total_amount
       FROM transactions
-      WHERE date(created_at) BETWEEN date(?) AND date(?)
+      WHERE created_at >= ? AND created_at <= ?
       GROUP BY type
-    `, [from_date, to_date]);
+    `, [fromTs, toTs]);
 
     const expenseBreakdown = await db.queryAll(`
       SELECT 
@@ -172,7 +178,7 @@ router.get('/custom', async (req, res) => {
         COUNT(*) as count,
         COALESCE(SUM(amount), 0) as total_amount
       FROM expenses
-      WHERE date(expense_date) BETWEEN date(?) AND date(?)
+      WHERE expense_date >= ? AND expense_date <= ?
       GROUP BY category
     `, [from_date, to_date]);
 
@@ -181,15 +187,15 @@ router.get('/custom', async (req, res) => {
       FROM transactions t
       LEFT JOIN members m ON t.member_id = m.id
       LEFT JOIN events e ON t.event_id = e.id
-      WHERE date(t.created_at) BETWEEN date(?) AND date(?)
+      WHERE t.created_at >= ? AND t.created_at <= ?
       ORDER BY t.created_at ASC
-    `, [from_date, to_date]);
+    `, [fromTs, toTs]);
 
     const expensesList = await db.queryAll(`
       SELECT ex.*, e.title as event_title
       FROM expenses ex
       LEFT JOIN events e ON ex.event_id = e.id
-      WHERE date(ex.expense_date) BETWEEN date(?) AND date(?)
+      WHERE ex.expense_date >= ? AND ex.expense_date <= ?
       ORDER BY ex.expense_date ASC
     `, [from_date, to_date]);
 

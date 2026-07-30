@@ -1713,8 +1713,8 @@ function renderEventDuesTable() {
   const dues = currentEventDuesData.dues || [];
   const search = (document.getElementById('searchEventDuesInput')?.value || '').toLowerCase().trim();
 
-  const pendingList = dues.filter(d => (parseFloat(d.amount) - parseFloat(d.paid_amount)) > 0);
-  const paidList = dues.filter(d => (parseFloat(d.amount) - parseFloat(d.paid_amount)) <= 0);
+  const pendingList = dues.filter(d => ((parseFloat(d.amount) || 0) - (parseFloat(d.paid_amount) || 0)) > 0);
+  const paidList = dues.filter(d => ((parseFloat(d.amount) || 0) - (parseFloat(d.paid_amount) || 0)) <= 0);
 
   document.getElementById('countPendingDues').innerText = pendingList.length;
   document.getElementById('countAllDues').innerText = dues.length;

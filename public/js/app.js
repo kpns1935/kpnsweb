@@ -122,6 +122,12 @@ async function checkAuthSession() {
       if (loginPage) loginPage.classList.add('hidden');
       if (appContainer) appContainer.style.display = 'block';
       
+      const userInitial = (data.user.name || data.user.email || 'U').charAt(0).toUpperCase();
+      const userAvatar = document.getElementById('userAvatar');
+      if (userAvatar) userAvatar.innerText = userInitial;
+      const userAvatarMobile = document.getElementById('userAvatarMobile');
+      if (userAvatarMobile) userAvatarMobile.innerText = userInitial;
+
       if (roleBadge) roleBadge.innerText = data.user.role.toUpperCase();
       const roleBadgeMobile = document.getElementById('userRoleBadgeMobile');
       if (roleBadgeMobile) roleBadgeMobile.innerText = data.user.role.toUpperCase();
@@ -141,21 +147,18 @@ async function checkAuthSession() {
       }
       
       // RBAC UI modifications for management roles
-      const usersTabBtn = document.querySelector('button[onclick="switchTab(\'users\')"]');
+      const usersTabBtns = document.querySelectorAll('button[onclick="switchTab(\'users\')"]');
       const restoreBtn = document.querySelector('button[onclick="openModal(\'importBackupModal\')"]');
       const eraseBtn = document.getElementById('eraseAllBtn');
       const isManager = data.user && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((data.user.role || '').toLowerCase());
 
-      if (isManager) {
-        if (usersTabBtn) usersTabBtn.style.display = 'block';
-        if (restoreBtn) restoreBtn.style.display = 'inline-block';
-        if (eraseBtn) eraseBtn.style.display = data.user.role === 'admin' ? 'inline-block' : 'none';
-      } else {
-        if (usersTabBtn) usersTabBtn.style.display = 'none';
-        if (restoreBtn) restoreBtn.style.display = 'none';
-        if (eraseBtn) eraseBtn.style.display = 'none';
-        
-        // If they are on the users tab, kick them to dashboard
+      usersTabBtns.forEach(btn => {
+        btn.style.display = isManager ? 'flex' : 'none';
+      });
+      if (restoreBtn) restoreBtn.style.display = isManager ? 'inline-block' : 'none';
+      if (eraseBtn) eraseBtn.style.display = data.user.role === 'admin' ? 'inline-block' : 'none';
+
+      if (!isManager) {
         const usersSection = document.getElementById('users');
         if (usersSection && usersSection.classList.contains('active')) {
           switchTab('dashboard');
@@ -1654,9 +1657,9 @@ function switchTab(tabId) {
   const tab = document.getElementById(tabId);
   if (tab) tab.classList.add('active');
   
-  if (window.event && window.event.currentTarget) {
-    window.event.currentTarget.classList.add('active');
-  }
+  document.querySelectorAll(`button[onclick="switchTab('${tabId}')"]`).forEach(btn => {
+    btn.classList.add('active');
+  });
 
   if (tabId === 'users') {
     loadUsersData();

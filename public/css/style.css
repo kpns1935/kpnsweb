@@ -1152,30 +1152,32 @@ tr:hover td {
 /* Mobile Toggle Hamburger Button */
 .mobile-toggle {
   display: none;
-  background: transparent;
-  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
   color: var(--text-primary);
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: var(--radius-sm);
   align-items: center;
   justify-content: center;
   cursor: pointer;
   z-index: 1001;
-  margin-left: -8px;
   padding: 0;
+  transition: all 0.2s ease;
 }
-.mobile-toggle:hover {
-  background: rgba(255, 255, 255, 0.05);
+.mobile-toggle:hover, .mobile-toggle:active {
+  background: var(--glass-hover);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary-hover);
 }
 
 /* Nav Overlay Backdrop */
 .nav-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1200,6 +1202,7 @@ body {
 @media (max-width: 1024px) {
   header {
     padding: 0 16px;
+    height: 60px;
   }
   
   .mobile-toggle {
@@ -1207,7 +1210,18 @@ body {
   }
 
   .user-profile {
-    display: none; /* Hide standard user profile on mobile */
+    display: flex;
+    align-items: center;
+  }
+
+  .user-details {
+    display: none; /* Hide detailed text on mobile header */
+  }
+
+  .user-dropdown-toggle {
+    padding: 4px;
+    background: transparent;
+    border: none;
   }
 
   nav#mainNav {
@@ -1217,16 +1231,16 @@ body {
     width: 280px;
     height: 100vh;
     height: 100dvh;
-    background: rgba(17, 24, 39, 0.95);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: rgba(15, 23, 42, 0.98);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
     border-right: 1px solid var(--glass-border);
     flex-direction: column;
     align-items: stretch;
     padding: 0;
     gap: 0;
     transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-    z-index: 999;
+    z-index: 1005;
     box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
   }
 

@@ -103,26 +103,29 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const eventId = req.params.id;
-    const event = await db.queryOne(`SELECT * FROM events WHERE id = ?`, [eventId]);
+    const event = await db.queryOne('SELECT * FROM events WHERE id = ?', [eventId]);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    const dues = await db.queryAll(`
-      SELECT 
-        d.*,
-        m.member_code,
-        m.name as member_name,
-        m.phone as member_phone
-      FROM event_dues d
-      JOIN members m ON d.member_id = m.id
-      WHERE d.event_id = ?
-    `, [eventId]);
+    const rawDues = await db.queryAll('SELECT * FROM event_dues WHERE event_id = ?', [eventId]);
+
+    // Fetch members for lookup
+    const members = await db.queryAll('SELECT id, name, member_code, phone FROM members');
+    const memberMap = {};
+    for (const m of members) memberMap[m.id] = m;
+
+    const dues = rawDues.map(d => {
+      const m = memberMap[d.member_id] || {};
+      return {
+        ...d,
+        member_code: m.member_code || d.member_code || '-',
+        member_name: m.name || d.member_name || ('Member #' + d.member_id),
+        member_phone: m.phone || d.member_phone || '-'
+      };
+    });
 
     dues.sort((a, b) => (a.member_name || '').localeCompare(b.member_name || ''));
 
-    const expenses = await db.queryAll(`
-      SELECT * FROM expenses WHERE event_id = ?
-    `, [eventId]);
-
+    const expenses = await db.queryAll('SELECT * FROM expenses WHERE event_id = ?', [eventId]);
     expenses.sort((a, b) => new Date(b.expense_date || 0) - new Date(a.expense_date || 0));
 
     res.json({ event, dues, expenses });

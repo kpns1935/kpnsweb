@@ -7,52 +7,39 @@ const { sendWhatsAppSlip } = require('../whatsapp');
 router.get('/', async (req, res) => {
   try {
     const { type, member_id, from_date, to_date } = req.query;
-    let sql = `
-      SELECT 
-        t.*,
-        m.member_code,
-        m.name as member_name,
-        m.phone as member_phone,
-        e.title as event_title
-      FROM transactions t
-      LEFT JOIN members m ON t.member_id = m.id
-      LEFT JOIN events e ON t.event_id = e.id
-      WHERE 1=1
-    `;
-    const params = [];
 
-    if (type) {
-      sql += ` AND t.type = ?`;
-      params.push(type);
-    }
-    if (member_id) {
-      sql += ` AND t.member_id = ?`;
-      params.push(member_id);
-    }
-    if (from_date) {
-      sql += ` AND date(t.created_at) >= date(?)`;
-      params.push(from_date);
-    }
-    if (to_date) {
-      sql += ` AND date(t.created_at) <= date(?)`;
-      params.push(to_date);
-    }
+    // Fetch all transactions
+    const allTxs = await db.queryAll('SELECT * FROM transactions ORDER BY id DESC');
 
-    sql += ` ORDER BY t.id DESC`;
+    // Fetch lookup tables for member and event names
+    const members = await db.queryAll('SELECT id, name, member_code, phone FROM members');
+    const events = await db.queryAll('SELECT id, title FROM events');
+    const memberMap = {};
+    for (const m of members) memberMap[m.id] = m;
+    const eventMap = {};
+    for (const e of events) eventMap[e.id] = e;
 
-    const txs = await db.queryAll(sql, params);
-    
-    // Resolve event titles if event_id is present
-    for (let tx of txs) {
-      if (tx.event_id) {
-        const ids = String(tx.event_id).split(',').map(id => id.trim()).filter(Boolean);
-        if (ids.length > 0) {
-          const events = await db.queryAll(`SELECT title FROM events WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
-          tx.event_title = events.map(ev => ev.title).join(', ');
-        }
-      }
-    }
-    
+    // Filter in JS
+    let txs = allTxs;
+    if (type) txs = txs.filter(t => t.type === type);
+    if (member_id) txs = txs.filter(t => String(t.member_id) === String(member_id));
+    if (from_date) txs = txs.filter(t => (t.created_at || '').slice(0, 10) >= from_date);
+    if (to_date) txs = txs.filter(t => (t.created_at || '').slice(0, 10) <= to_date);
+
+    // Attach member/event details
+    txs = txs.map(tx => {
+      const m = memberMap[tx.member_id] || {};
+      const eventIds = tx.event_id ? String(tx.event_id).split(',').map(id => id.trim()).filter(Boolean) : [];
+      const eventTitles = eventIds.map(id => (eventMap[id] || {}).title).filter(Boolean);
+      return {
+        ...tx,
+        member_code: m.member_code || tx.member_code || null,
+        member_name: m.name || tx.member_name || null,
+        member_phone: m.phone || tx.member_phone || null,
+        event_title: eventTitles.join(', ') || tx.event_title || null
+      };
+    });
+
     res.json(txs);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,33 +49,35 @@ router.get('/', async (req, res) => {
 // Get single transaction details
 router.get('/:id', async (req, res) => {
   try {
-    const tx = await db.queryOne(`
-      SELECT 
-        t.*,
-        m.member_code,
-        m.name as member_name,
-        m.phone as member_phone,
-        m.email as member_email,
-        m.address as member_address,
-        e.title as event_title,
-        e.contribution_amount as event_contribution
-      FROM transactions t
-      LEFT JOIN members m ON t.member_id = m.id
-      LEFT JOIN events e ON t.event_id = e.id
-      WHERE t.id = ?
-    `, [req.params.id]);
-
+    const tx = await db.queryOne('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
     if (!tx) return res.status(404).json({ error: 'Transaction not found' });
-    
-    // Resolve event titles if event_id is present
-    if (tx && tx.event_id) {
-      const ids = String(tx.event_id).split(',').map(id => id.trim()).filter(Boolean);
-      if (ids.length > 0) {
-        const events = await db.queryAll(`SELECT title FROM events WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
-        tx.event_title = events.map(ev => ev.title).join(', ');
+
+    // Attach member details
+    if (tx.member_id) {
+      const member = await db.queryOne('SELECT * FROM members WHERE id = ?', [tx.member_id]);
+      if (member) {
+        tx.member_code = member.member_code;
+        tx.member_name = member.name;
+        tx.member_phone = member.phone;
+        tx.member_email = member.email;
+        tx.member_address = member.address;
       }
     }
-    
+
+    // Resolve event titles
+    if (tx.event_id) {
+      const ids = String(tx.event_id).split(',').map(id => id.trim()).filter(Boolean);
+      const titles = [];
+      for (const id of ids) {
+        const ev = await db.queryOne('SELECT * FROM events WHERE id = ?', [id]);
+        if (ev) {
+          titles.push(ev.title);
+          tx.event_contribution = ev.contribution_amount;
+        }
+      }
+      tx.event_title = titles.join(', ');
+    }
+
     res.json(tx);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -176,30 +165,31 @@ router.post('/', async (req, res) => {
     }
 
     // Record Transaction
+    const createdAtValue = created_at ? `${created_at} 12:00:00` : new Date().toISOString();
+
     const txResult = await db.execute(
       `INSERT INTO transactions (
         receipt_no, member_id, outside_person_name, outside_person_phone, 
         event_id, due_id, type, amount, payment_mode, notes, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         receiptNo, resolvedMemberId, resolvedOutsideName, resolvedOutsidePhone,
         event_id || null, due_id || null, type, parsedAmount, payment_mode || 'Cash', notes || '',
-        created_at ? `${created_at} 12:00:00` : null
+        createdAtValue
       ]
     );
 
     const createdTxId = txResult.lastID;
 
     // Fetch full created tx with recipient information
-    const createdTx = await db.queryOne(`
-      SELECT 
-        t.*,
-        m.name as member_name,
-        m.phone as member_phone
-      FROM transactions t
-      LEFT JOIN members m ON t.member_id = m.id
-      WHERE t.id = ?
-    `, [createdTxId]);
+    const createdTx = await db.queryOne('SELECT * FROM transactions WHERE id = ?', [createdTxId]);
+    if (createdTx && createdTx.member_id) {
+      const member = await db.queryOne('SELECT * FROM members WHERE id = ?', [createdTx.member_id]);
+      if (member) {
+        createdTx.member_name = member.name;
+        createdTx.member_phone = member.phone;
+      }
+    }
 
     // Send WhatsApp if requested
     let whatsappResult = null;
@@ -236,17 +226,17 @@ router.post('/', async (req, res) => {
 // Trigger WhatsApp message manually for an existing receipt
 router.post('/:id/send-whatsapp', async (req, res) => {
   try {
-    const tx = await db.queryOne(`
-      SELECT 
-        t.*,
-        m.name as member_name,
-        m.phone as member_phone
-      FROM transactions t
-      LEFT JOIN members m ON t.member_id = m.id
-      WHERE t.id = ?
-    `, [req.params.id]);
-
+    const tx = await db.queryOne('SELECT * FROM transactions WHERE id = ?', [req.params.id]);
     if (!tx) return res.status(404).json({ error: 'Transaction not found' });
+
+    // Attach member details
+    if (tx.member_id) {
+      const member = await db.queryOne('SELECT * FROM members WHERE id = ?', [tx.member_id]);
+      if (member) {
+        tx.member_name = member.name;
+        tx.member_phone = member.phone;
+      }
+    }
 
     const recipientName = tx.member_name || tx.outside_person_name || 'Valued Supporter';
     const recipientPhone = req.body.phone || tx.member_phone || tx.outside_person_phone;
@@ -285,9 +275,21 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Invalid amount' });
     }
 
+    const updateFields = {
+      amount: newAmount,
+      payment_mode: payment_mode || tx.payment_mode,
+      notes: notes ?? tx.notes
+    };
+    if (created_at) {
+      updateFields.created_at = `${created_at} 12:00:00`;
+    }
+    const setCols = Object.keys(updateFields);
+    const setClause = setCols.map(c => `${c} = ?`).join(', ');
+    const setParams = setCols.map(c => updateFields[c]);
+
     await db.execute(
-      `UPDATE transactions SET amount = ?, payment_mode = ?, notes = ?, created_at = COALESCE(?, created_at) WHERE id = ?`,
-      [newAmount, payment_mode || tx.payment_mode, notes ?? tx.notes, created_at ? `${created_at} 12:00:00` : null, txId]
+      `UPDATE transactions SET ${setClause} WHERE id = ?`,
+      [...setParams, txId]
     );
 
     res.json({ success: true, message: 'Transaction updated successfully.' });

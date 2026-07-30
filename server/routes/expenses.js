@@ -6,24 +6,27 @@ const db = require('../db');
 router.get('/', async (req, res) => {
   try {
     const { category, event_id, from_date, to_date } = req.query;
-    let sql = `
-      SELECT 
-        ex.*,
-        e.title as event_title
-      FROM expenses ex
-      LEFT JOIN events e ON ex.event_id = e.id
-      WHERE 1=1
-    `;
-    const params = [];
 
-    if (category) { sql += ` AND ex.category = ?`; params.push(category); }
-    if (event_id) { sql += ` AND ex.event_id = ?`; params.push(event_id); }
-    if (from_date) { sql += ` AND date(ex.expense_date) >= date(?)`; params.push(from_date); }
-    if (to_date) { sql += ` AND date(ex.expense_date) <= date(?)`; params.push(to_date); }
+    const allExpenses = await db.queryAll('SELECT * FROM expenses ORDER BY expense_date DESC, id DESC');
 
-    sql += ` ORDER BY ex.expense_date DESC, ex.id DESC`;
+    // Fetch events for title lookup
+    const events = await db.queryAll('SELECT id, title FROM events');
+    const eventMap = {};
+    for (const e of events) eventMap[e.id] = e;
 
-    const expenses = await db.queryAll(sql, params);
+    // Filter in JS
+    let expenses = allExpenses;
+    if (category) expenses = expenses.filter(ex => ex.category === category);
+    if (event_id) expenses = expenses.filter(ex => String(ex.event_id) === String(event_id));
+    if (from_date) expenses = expenses.filter(ex => (ex.expense_date || '').slice(0, 10) >= from_date);
+    if (to_date) expenses = expenses.filter(ex => (ex.expense_date || '').slice(0, 10) <= to_date);
+
+    // Attach event titles
+    expenses = expenses.map(ex => ({
+      ...ex,
+      event_title: (eventMap[ex.event_id] || {}).title || ex.event_title || null
+    }));
+
     res.json(expenses);
   } catch (err) {
     res.status(500).json({ error: err.message });

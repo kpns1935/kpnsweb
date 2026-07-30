@@ -5,28 +5,38 @@ const db = require('../db');
 // Overall Financial Summary
 router.get('/summary', async (req, res) => {
   try {
-    const totalMemberPayments = await db.queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'member_payment'`);
-    const totalMemberDonations = await db.queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'member_donation'`);
-    const totalOutsideDonations = await db.queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE type = 'outside_donation'`);
-    const totalExpenses = await db.queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM expenses`);
-    const totalPendingDues = await db.queryOne(`SELECT COALESCE(SUM(amount - paid_amount), 0) as total FROM event_dues`);
+    const allTransactions = await db.queryAll('SELECT * FROM transactions');
+    const allExpenses = await db.queryAll('SELECT * FROM expenses');
+    const allDues = await db.queryAll('SELECT * FROM event_dues');
+    const allMembers = await db.queryAll('SELECT * FROM members');
+    const allEvents = await db.queryAll('SELECT * FROM events');
 
-    const totalIncome = (totalMemberPayments.total || 0) + (totalMemberDonations.total || 0) + (totalOutsideDonations.total || 0);
-    const netCashBalance = totalIncome - (totalExpenses.total || 0);
+    let totalMemberPayments = 0, totalMemberDonations = 0, totalOutsideDonations = 0;
+    for (const t of allTransactions) {
+      const amt = parseFloat(t.amount) || 0;
+      if (t.type === 'member_payment') totalMemberPayments += amt;
+      else if (t.type === 'member_donation') totalMemberDonations += amt;
+      else if (t.type === 'outside_donation') totalOutsideDonations += amt;
+    }
 
-    const memberCountObj = await db.queryOne(`SELECT COUNT(*) as count FROM members`);
-    const eventCountObj = await db.queryOne(`SELECT COUNT(*) as count FROM events`);
+    let totalExpenses = 0;
+    for (const ex of allExpenses) totalExpenses += (parseFloat(ex.amount) || 0);
+
+    let totalPendingDues = 0;
+    for (const d of allDues) totalPendingDues += ((parseFloat(d.amount) || 0) - (parseFloat(d.paid_amount) || 0));
+
+    const totalIncome = totalMemberPayments + totalMemberDonations + totalOutsideDonations;
 
     res.json({
-      member_count: memberCountObj.count,
-      event_count: eventCountObj.count,
-      total_member_payments: totalMemberPayments.total || 0,
-      total_member_donations: totalMemberDonations.total || 0,
-      total_outside_donations: totalOutsideDonations.total || 0,
+      member_count: allMembers.length,
+      event_count: allEvents.length,
+      total_member_payments: totalMemberPayments,
+      total_member_donations: totalMemberDonations,
+      total_outside_donations: totalOutsideDonations,
       total_income: totalIncome,
-      total_expenses: totalExpenses.total || 0,
-      net_cash_balance: netCashBalance,
-      total_pending_dues: totalPendingDues.total || 0
+      total_expenses: totalExpenses,
+      net_cash_balance: totalIncome - totalExpenses,
+      total_pending_dues: totalPendingDues
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -40,49 +50,66 @@ router.get('/yearly', async (req, res) => {
     const fromDate = `${year}-01-01`;
     const toDate = `${year}-12-31`;
 
-    const yearFromDate = `${year}-01-01`;
-    const yearToDate = `${year}-12-31 23:59:59`;
+    // Fetch all transactions and expenses
+    const allTransactions = await db.queryAll('SELECT * FROM transactions');
+    const allExpenses = await db.queryAll('SELECT * FROM expenses');
 
-    const incomeBreakdown = await db.queryAll(`
-      SELECT 
-        type,
-        COUNT(*) as count,
-        COALESCE(SUM(amount), 0) as total_amount
-      FROM transactions
-      WHERE created_at >= ? AND created_at <= ?
-      GROUP BY type
-    `, [yearFromDate, yearToDate]);
+    // Fetch lookup tables
+    const members = await db.queryAll('SELECT id, name FROM members');
+    const events = await db.queryAll('SELECT id, title FROM events');
+    const memberMap = {};
+    for (const m of members) memberMap[m.id] = m;
+    const eventMap = {};
+    for (const e of events) eventMap[e.id] = e;
 
-    const expenseBreakdown = await db.queryAll(`
-      SELECT 
-        category,
-        COUNT(*) as count,
-        COALESCE(SUM(amount), 0) as total_amount
-      FROM expenses
-      WHERE expense_date >= ? AND expense_date <= ?
-      GROUP BY category
-    `, [`${year}-01-01`, `${year}-12-31`]);
+    // Filter by year
+    const yearTxs = allTransactions.filter(t => {
+      const d = (t.created_at || '').slice(0, 10);
+      return d >= fromDate && d <= toDate;
+    });
 
-    const transactionsList = await db.queryAll(`
-      SELECT t.*, m.name as member_name, e.title as event_title
-      FROM transactions t
-      LEFT JOIN members m ON t.member_id = m.id
-      LEFT JOIN events e ON t.event_id = e.id
-      WHERE t.created_at >= ? AND t.created_at <= ?
-      ORDER BY t.created_at ASC
-    `, [yearFromDate, yearToDate]);
+    const yearExps = allExpenses.filter(ex => {
+      const d = (ex.expense_date || '').slice(0, 10);
+      return d >= fromDate && d <= toDate;
+    });
 
-    const expensesList = await db.queryAll(`
-      SELECT ex.*, e.title as event_title
-      FROM expenses ex
-      LEFT JOIN events e ON ex.event_id = e.id
-      WHERE ex.expense_date >= ? AND ex.expense_date <= ?
-      ORDER BY ex.expense_date ASC
-    `, [`${year}-01-01`, `${year}-12-31`]);
+    // Build income_breakdown (GROUP BY type in JS)
+    const incomeGroups = {};
+    for (const t of yearTxs) {
+      const tp = t.type || 'unknown';
+      if (!incomeGroups[tp]) incomeGroups[tp] = { type: tp, count: 0, total_amount: 0 };
+      incomeGroups[tp].count++;
+      incomeGroups[tp].total_amount += (parseFloat(t.amount) || 0);
+    }
+    const incomeBreakdown = Object.values(incomeGroups);
+
+    // Build expense_breakdown (GROUP BY category in JS)
+    const expenseGroups = {};
+    for (const ex of yearExps) {
+      const cat = ex.category || 'general';
+      if (!expenseGroups[cat]) expenseGroups[cat] = { category: cat, count: 0, total_amount: 0 };
+      expenseGroups[cat].count++;
+      expenseGroups[cat].total_amount += (parseFloat(ex.amount) || 0);
+    }
+    const expenseBreakdown = Object.values(expenseGroups);
+
+    // Enrich transactions with member/event names
+    const transactionsList = yearTxs.map(t => {
+      const m = memberMap[t.member_id] || {};
+      const ev = eventMap[t.event_id] || {};
+      return { ...t, member_name: m.name || t.member_name || null, event_title: ev.title || t.event_title || null };
+    });
+    transactionsList.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+
+    // Enrich expenses with event names
+    const expensesList = yearExps.map(ex => {
+      const ev = eventMap[ex.event_id] || {};
+      return { ...ex, event_title: ev.title || ex.event_title || null };
+    });
+    expensesList.sort((a, b) => new Date(a.expense_date || 0) - new Date(b.expense_date || 0));
 
     let totalIncome = 0;
     incomeBreakdown.forEach(i => totalIncome += i.total_amount);
-
     let totalExpenses = 0;
     expenseBreakdown.forEach(e => totalExpenses += e.total_amount);
 
@@ -186,49 +213,66 @@ router.get('/custom', async (req, res) => {
       return res.status(400).json({ error: 'from_date and to_date query parameters required' });
     }
 
-    const fromTs = `${from_date} 00:00:00`;
-    const toTs = `${to_date} 23:59:59`;
+    // Fetch all transactions and expenses
+    const allTransactions = await db.queryAll('SELECT * FROM transactions');
+    const allExpenses = await db.queryAll('SELECT * FROM expenses');
 
-    const incomeBreakdown = await db.queryAll(`
-      SELECT 
-        type,
-        COUNT(*) as count,
-        COALESCE(SUM(amount), 0) as total_amount
-      FROM transactions
-      WHERE created_at >= ? AND created_at <= ?
-      GROUP BY type
-    `, [fromTs, toTs]);
+    // Fetch lookup tables
+    const members = await db.queryAll('SELECT id, name FROM members');
+    const events = await db.queryAll('SELECT id, title FROM events');
+    const memberMap = {};
+    for (const m of members) memberMap[m.id] = m;
+    const eventMap = {};
+    for (const e of events) eventMap[e.id] = e;
 
-    const expenseBreakdown = await db.queryAll(`
-      SELECT 
-        category,
-        COUNT(*) as count,
-        COALESCE(SUM(amount), 0) as total_amount
-      FROM expenses
-      WHERE expense_date >= ? AND expense_date <= ?
-      GROUP BY category
-    `, [from_date, to_date]);
+    // Filter by date range
+    const periodTxs = allTransactions.filter(t => {
+      const d = (t.created_at || '').slice(0, 10);
+      return d >= from_date && d <= to_date;
+    });
 
-    const transactionsList = await db.queryAll(`
-      SELECT t.*, m.name as member_name, e.title as event_title
-      FROM transactions t
-      LEFT JOIN members m ON t.member_id = m.id
-      LEFT JOIN events e ON t.event_id = e.id
-      WHERE t.created_at >= ? AND t.created_at <= ?
-      ORDER BY t.created_at ASC
-    `, [fromTs, toTs]);
+    const periodExps = allExpenses.filter(ex => {
+      const d = (ex.expense_date || '').slice(0, 10);
+      return d >= from_date && d <= to_date;
+    });
 
-    const expensesList = await db.queryAll(`
-      SELECT ex.*, e.title as event_title
-      FROM expenses ex
-      LEFT JOIN events e ON ex.event_id = e.id
-      WHERE ex.expense_date >= ? AND ex.expense_date <= ?
-      ORDER BY ex.expense_date ASC
-    `, [from_date, to_date]);
+    // Build income_breakdown (GROUP BY type in JS)
+    const incomeGroups = {};
+    for (const t of periodTxs) {
+      const tp = t.type || 'unknown';
+      if (!incomeGroups[tp]) incomeGroups[tp] = { type: tp, count: 0, total_amount: 0 };
+      incomeGroups[tp].count++;
+      incomeGroups[tp].total_amount += (parseFloat(t.amount) || 0);
+    }
+    const incomeBreakdown = Object.values(incomeGroups);
+
+    // Build expense_breakdown (GROUP BY category in JS)
+    const expenseGroups = {};
+    for (const ex of periodExps) {
+      const cat = ex.category || 'general';
+      if (!expenseGroups[cat]) expenseGroups[cat] = { category: cat, count: 0, total_amount: 0 };
+      expenseGroups[cat].count++;
+      expenseGroups[cat].total_amount += (parseFloat(ex.amount) || 0);
+    }
+    const expenseBreakdown = Object.values(expenseGroups);
+
+    // Enrich transactions with member/event names
+    const transactionsList = periodTxs.map(t => {
+      const m = memberMap[t.member_id] || {};
+      const ev = eventMap[t.event_id] || {};
+      return { ...t, member_name: m.name || t.member_name || null, event_title: ev.title || t.event_title || null };
+    });
+    transactionsList.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+
+    // Enrich expenses with event names
+    const expensesList = periodExps.map(ex => {
+      const ev = eventMap[ex.event_id] || {};
+      return { ...ex, event_title: ev.title || ex.event_title || null };
+    });
+    expensesList.sort((a, b) => new Date(a.expense_date || 0) - new Date(b.expense_date || 0));
 
     let totalIncome = 0;
     incomeBreakdown.forEach(i => totalIncome += i.total_amount);
-
     let totalExpenses = 0;
     expenseBreakdown.forEach(e => totalExpenses += e.total_amount);
 
@@ -251,3 +295,4 @@ router.get('/custom', async (req, res) => {
 });
 
 module.exports = router;
+

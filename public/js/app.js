@@ -984,7 +984,7 @@ async function viewReceipt(id) {
     document.getElementById('rNotes').innerText = tx.notes || '-';
 
     const tagEl = document.getElementById('rTag');
-    if (tx.type === 'member_payment') tagEl.innerText = 'MEMBER DUES PAYMENT';
+    if (tx.type === 'member_payment') tagEl.innerText = 'MONEY RECEIPT';
     else if (tx.type === 'member_donation') tagEl.innerText = 'MEMBER DONATION';
     else tagEl.innerText = 'Well Wisher Donation';
 

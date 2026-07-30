@@ -679,6 +679,52 @@
     </div>
   </div>
 
+  <!-- EVENT PENDING / DUES MEMBERS MODAL -->
+  <div class="modal-backdrop" id="eventDuesModal">
+    <div class="modal" style="max-width: 840px; width: 95%;">
+      <div class="modal-header">
+        <div>
+          <h3 id="eventDuesTitle" style="color: var(--accent-gold); margin-bottom: 4px;">🎯 Event Member Dues Status</h3>
+          <p id="eventDuesSub" style="color: var(--text-secondary); font-size: 0.85rem; margin: 0;"></p>
+        </div>
+        <button class="close-btn" onclick="closeModal('eventDuesModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- Filter Tabs & Search Bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+          <div class="btn-group" style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button class="btn btn-sm btn-outline active" id="btnFilterPendingDues" onclick="filterEventDues('pending')">⚠️ Pending / Unpaid (<span id="countPendingDues">0</span>)</button>
+            <button class="btn btn-sm btn-outline" id="btnFilterAllDues" onclick="filterEventDues('all')">👥 All Members (<span id="countAllDues">0</span>)</button>
+            <button class="btn btn-sm btn-outline" id="btnFilterPaidDues" onclick="filterEventDues('completed')">✅ Completed (<span id="countPaidDues">0</span>)</button>
+          </div>
+          <input type="text" id="searchEventDuesInput" class="form-control" style="max-width: 220px; font-size: 0.85rem;" placeholder="🔍 Search member..." oninput="renderEventDuesTable()">
+        </div>
+
+        <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Member Name</th>
+                <th>Phone</th>
+                <th>Imposed</th>
+                <th>Paid</th>
+                <th>Pending</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="eventDuesTableBody">
+              <!-- Loaded via JS -->
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- Record Transaction / Receipt Modal -->
   <div class="modal-backdrop" id="transactionModal">
     <div class="modal">
@@ -688,6 +734,7 @@
       </div>
       <div class="modal-body">
         <form id="txForm" onsubmit="saveTransaction(event)">
+          <input type="hidden" id="txDueId">
           <div class="form-group">
             <label>Transaction Type *</label>
             <select id="txType" class="form-control" onchange="toggleTxTypeFields()" required>

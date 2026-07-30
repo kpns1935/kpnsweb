@@ -711,6 +711,7 @@ async function loadEventsData() {
         <td class="text-rose">${formatINR(e.total_expenses)}</td>
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="viewEventPendingMembers(${e.id})">👥 Pending List</button>
             <button class="btn btn-outline btn-sm" onclick="openEventReport(${e.id})">📊 Report</button>
             ${currentUser && currentUser.role === 'admin' ? `
               <button class="btn btn-outline btn-sm" onclick="editEvent(${e.id})">✏️ Edit</button>
@@ -933,12 +934,14 @@ async function saveTransaction(e) {
   const notes = document.getElementById('txNotes').value;
   const send_whatsapp = document.getElementById('txSendWhatsApp').checked;
 
+  const due_id = document.getElementById('txDueId')?.value || null;
+
   const res = await fetch('/api/transactions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       type, member_id, outside_person_name, outside_person_phone,
-      event_id, amount, payment_mode, notes, send_whatsapp, created_at
+      event_id, due_id, amount, payment_mode, notes, send_whatsapp, created_at
     })
   });
 
@@ -947,9 +950,14 @@ async function saveTransaction(e) {
     showToast(`Transaction recorded successfully! Receipt: ${data.receiptNo}`, 'success');
     closeModal('transactionModal');
     document.getElementById('txForm').reset();
+    if (document.getElementById('txDueId')) document.getElementById('txDueId').value = '';
     loadTransactionsData();
     loadMembersData();
     loadDashboardData();
+    loadEventsData();
+    if (currentEventDuesData && currentEventDuesData.event) {
+      viewEventPendingMembers(currentEventDuesData.event.id);
+    }
     viewReceipt(data.transactionId);
   } else {
     showToast(data.error || 'Failed to save transaction', 'error');
@@ -1663,9 +1671,146 @@ function openModal(modalId) {
   if (modal) modal.classList.add('active');
 }
 
-function openTransactionModal() {
+let currentEventDuesData = null;
+let currentEventDuesFilter = 'pending';
+
+async function viewEventPendingMembers(eventId) {
+  try {
+    const res = await fetch(`/api/events/${eventId}`);
+    const data = await res.json();
+    currentEventDuesData = data;
+    currentEventDuesFilter = 'pending';
+    
+    document.getElementById('btnFilterPendingDues').classList.add('active');
+    document.getElementById('btnFilterAllDues').classList.remove('active');
+    document.getElementById('btnFilterPaidDues').classList.remove('active');
+    
+    const ev = data.event;
+    document.getElementById('eventDuesTitle').innerText = `🎯 ${ev.title}`;
+    document.getElementById('eventDuesSub').innerText = `Event Date: ${formatDate(ev.event_date)} | Contribution Imposed: ${formatINR(ev.contribution_amount)} Per Member`;
+
+    if (document.getElementById('searchEventDuesInput')) {
+      document.getElementById('searchEventDuesInput').value = '';
+    }
+
+    renderEventDuesTable();
+    openModal('eventDuesModal');
+  } catch (err) {
+    showToast('Failed to load event dues details', 'error');
+  }
+}
+
+function filterEventDues(filterType) {
+  currentEventDuesFilter = filterType;
+  document.getElementById('btnFilterPendingDues').classList.toggle('active', filterType === 'pending');
+  document.getElementById('btnFilterAllDues').classList.toggle('active', filterType === 'all');
+  document.getElementById('btnFilterPaidDues').classList.toggle('active', filterType === 'completed');
+  renderEventDuesTable();
+}
+
+function renderEventDuesTable() {
+  if (!currentEventDuesData) return;
+  const dues = currentEventDuesData.dues || [];
+  const search = (document.getElementById('searchEventDuesInput')?.value || '').toLowerCase().trim();
+
+  const pendingList = dues.filter(d => (parseFloat(d.amount) - parseFloat(d.paid_amount)) > 0);
+  const paidList = dues.filter(d => (parseFloat(d.amount) - parseFloat(d.paid_amount)) <= 0);
+
+  document.getElementById('countPendingDues').innerText = pendingList.length;
+  document.getElementById('countAllDues').innerText = dues.length;
+  document.getElementById('countPaidDues').innerText = paidList.length;
+
+  let filtered = dues;
+  if (currentEventDuesFilter === 'pending') {
+    filtered = pendingList;
+  } else if (currentEventDuesFilter === 'completed') {
+    filtered = paidList;
+  }
+
+  if (search) {
+    filtered = filtered.filter(d => 
+      (d.member_name || '').toLowerCase().includes(search) || 
+      (d.member_code || '').toLowerCase().includes(search) || 
+      (d.member_phone || '').includes(search)
+    );
+  }
+
+  const tbody = document.getElementById('eventDuesTableBody');
+  if (!tbody) return;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">No members found for this view filter.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(d => {
+    const amount = parseFloat(d.amount) || 0;
+    const paid = parseFloat(d.paid_amount) || 0;
+    const pending = Math.max(0, amount - paid);
+    const isPending = pending > 0;
+    const statusClass = isPending ? (paid > 0 ? 'role-badge' : 'role-badge') : 'role-badge';
+    const statusBg = isPending ? (paid > 0 ? 'background: rgba(245,158,11,0.2); color:#f59e0b;' : 'background: rgba(239,68,68,0.2); color:#ef4444;') : 'background: rgba(34,197,94,0.2); color:#22c55e;';
+    const statusText = isPending ? (paid > 0 ? 'PARTIAL' : 'PENDING') : 'PAID';
+
+    return `
+      <tr>
+        <td><strong class="text-gold">${d.member_code}</strong></td>
+        <td><strong>${d.member_name}</strong></td>
+        <td>${cleanNumber(d.member_phone) || '-'}</td>
+        <td>${formatINR(amount)}</td>
+        <td class="text-emerald">${formatINR(paid)}</td>
+        <td class="text-rose"><strong>${formatINR(pending)}</strong></td>
+        <td><span class="${statusClass}" style="${statusBg}">${statusText}</span></td>
+        <td>
+          ${isPending ? `
+            <button class="btn btn-emerald btn-sm" onclick="payEventDueForMember(${d.member_id}, ${currentEventDuesData.event.id}, ${d.id}, ${pending})">
+              💰 Collect ₹${pending}
+            </button>
+          ` : `
+            <span style="color: var(--accent-success); font-size: 0.85rem; font-weight: 600;">✓ Paid</span>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function payEventDueForMember(memberId, eventId, dueId, pendingAmount) {
+  closeModal('eventDuesModal');
+  openTransactionModal({
+    type: 'member_payment',
+    memberId: memberId,
+    eventId: eventId,
+    dueId: dueId,
+    amount: pendingAmount
+  });
+}
+
+function openTransactionModal(prefill = null) {
   document.getElementById('txDate').value = new Date().toISOString().slice(0, 10);
   openModal('transactionModal');
+
+  if (prefill) {
+    if (prefill.type) {
+      document.getElementById('txType').value = prefill.type;
+      toggleTxTypeFields();
+    }
+    if (prefill.memberId) {
+      document.getElementById('txMemberId').value = prefill.memberId;
+    }
+    if (prefill.dueId) {
+      document.getElementById('txDueId').value = prefill.dueId;
+    }
+    if (prefill.amount) {
+      document.getElementById('txAmount').value = prefill.amount;
+    }
+    if (prefill.eventId) {
+      const checkboxes = document.querySelectorAll('input[name="txEventIds"]');
+      checkboxes.forEach(cb => {
+        cb.checked = (String(cb.value) === String(prefill.eventId));
+      });
+    }
+  }
 }
 
 function closeModal(modalId) {

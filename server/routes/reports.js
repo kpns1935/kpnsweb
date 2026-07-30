@@ -112,38 +112,65 @@ router.get('/event/:eventId', async (req, res) => {
     const event = await db.queryOne(`SELECT * FROM events WHERE id = ?`, [eventId]);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    const totalImposed = await db.queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM event_dues WHERE event_id = ?`, [eventId]);
-    const totalCollectedDues = await db.queryOne(`SELECT COALESCE(SUM(paid_amount), 0) as total FROM event_dues WHERE event_id = ?`, [eventId]);
-    const totalEventDonations = await db.queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE event_id = ? AND type IN ('member_donation', 'outside_donation')`, [eventId]);
-    const totalEventExpenses = await db.queryOne(`SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE event_id = ?`, [eventId]);
+    const allDues = await db.queryAll(`SELECT * FROM event_dues WHERE event_id = ?`, [eventId]);
+    const allTransactions = await db.queryAll(`SELECT * FROM transactions WHERE event_id = ?`, [eventId]);
+    const allExpenses = await db.queryAll(`SELECT * FROM expenses WHERE event_id = ?`, [eventId]);
 
-    const duesDetails = await db.queryAll(`
-      SELECT d.*, m.member_code, m.name as member_name, m.phone as member_phone
-      FROM event_dues d
-      JOIN members m ON d.member_id = m.id
-      WHERE d.event_id = ?
-      ORDER BY m.name ASC
-    `, [eventId]);
+    let total_imposed_dues = 0;
+    let total_collected_dues = 0;
+    for (const d of allDues) {
+      total_imposed_dues += (parseFloat(d.amount) || 0);
+      total_collected_dues += (parseFloat(d.paid_amount) || 0);
+    }
 
-    const expensesList = await db.queryAll(`
-      SELECT * FROM expenses WHERE event_id = ? ORDER BY expense_date ASC
-    `, [eventId]);
+    let total_event_donations = 0;
+    for (const t of allTransactions) {
+      if (t.type === 'member_donation' || t.type === 'outside_donation') {
+        total_event_donations += (parseFloat(t.amount) || 0);
+      }
+    }
 
-    const totalIncome = (totalCollectedDues.total || 0) + (totalEventDonations.total || 0);
-    const totalExpenses = totalEventExpenses.total || 0;
+    let total_expenses = 0;
+    for (const ex of allExpenses) {
+      total_expenses += (parseFloat(ex.amount) || 0);
+    }
+
+    const total_pending_dues = total_imposed_dues - total_collected_dues;
+    const total_income = total_collected_dues + total_event_donations;
+    const net_event_profit_loss = total_income - total_expenses;
+
+    // Attach member details to dues
+    const members = await db.queryAll('SELECT id, name, member_code, phone FROM members');
+    const memberMap = {};
+    for (const m of members) {
+      memberMap[m.id] = m;
+    }
+
+    const duesDetails = allDues.map(d => {
+      const m = memberMap[d.member_id] || {};
+      return {
+        ...d,
+        member_code: m.member_code || '-',
+        member_name: m.name || ('Member #' + d.member_id),
+        member_phone: m.phone || '-'
+      };
+    });
+
+    duesDetails.sort((a, b) => (a.member_name || '').localeCompare(b.member_name || ''));
+    allExpenses.sort((a, b) => new Date(a.expense_date || 0) - new Date(b.expense_date || 0));
 
     res.json({
       report_type: 'EVENT',
       event,
-      total_imposed_dues: totalImposed.total || 0,
-      total_collected_dues: totalCollectedDues.total || 0,
-      total_pending_dues: (totalImposed.total || 0) - (totalCollectedDues.total || 0),
-      total_event_donations: totalEventDonations.total || 0,
-      total_income: totalIncome,
-      total_expenses: totalExpenses,
-      net_event_profit_loss: totalIncome - totalExpenses,
+      total_imposed_dues,
+      total_collected_dues,
+      total_pending_dues,
+      total_event_donations,
+      total_income,
+      total_expenses,
+      net_event_profit_loss,
       dues: duesDetails,
-      expenses: expensesList
+      expenses: allExpenses
     });
 
   } catch (err) {

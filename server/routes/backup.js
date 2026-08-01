@@ -39,10 +39,12 @@ router.get('/export-db', (req, res) => {
   res.redirect('/api/backup/export-json');
 });
 
+const isManagementUser = (user) => user && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((user.role || '').toLowerCase());
+
 // Import Full Data JSON Backup
 router.post('/import-json', async (req, res) => {
-  if (!req.session || !req.session.user || req.session.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required to restore backups' });
+  if (!req.session || !req.session.user || !isManagementUser(req.session.user)) {
+    return res.status(403).json({ error: 'Management access required to restore backups' });
   }
   try {
     const { backup } = req.body;
@@ -146,10 +148,10 @@ router.post('/import-json', async (req, res) => {
   }
 });
 
-// Erase All Data (Admin only - preserves default admin kpnsclub@gmail.com)
+// Erase All Data (Management roles - preserves default admin kpnsclub@gmail.com)
 router.post('/erase', async (req, res) => {
-  if (!req.session || !req.session.user || req.session.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin access required' });
+  if (!req.session || !req.session.user || !isManagementUser(req.session.user)) {
+    return res.status(403).json({ error: 'Management access required' });
   }
   try {
     await db.execute('DELETE FROM transactions');

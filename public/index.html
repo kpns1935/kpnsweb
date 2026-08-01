@@ -149,11 +149,11 @@
         
         <div class="user-dropdown-menu" id="userDropdownMenu">
           <div class="dropdown-header">System Operations</div>
-          <button class="dropdown-item" onclick="exportDataBackup()" title="Download Backup">
+          <button class="dropdown-item" id="backupDataBtn" onclick="exportDataBackup()" title="Download Backup">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             Backup Data
           </button>
-          <button class="dropdown-item" onclick="openModal('importBackupModal')" title="Restore Backup">
+          <button class="dropdown-item" id="restoreBackupBtn" onclick="openModal('importBackupModal')" title="Restore Backup">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
             Restore Backup
           </button>
@@ -277,12 +277,12 @@
     <section id="members" class="tab-content">
       <div class="section-header">
         <h2 class="section-title">👥 Organization Members</h2>
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn btn-outline" onclick="downloadSampleExcelTemplate()">📥 Download Template</button>
-          <button class="btn btn-emerald" onclick="openModal('excelUploadModal')">📊 Bulk Upload</button>
-          <button class="btn btn-outline" onclick="exportMembersList()">📤 Export Members</button>
-          <button class="btn btn-outline" onclick="seedSampleMembers()">🌱 Seed Sample 50</button>
-          <button class="btn" onclick="showAddMemberModal()">+ Add Member</button>
+        <div id="memberActionButtonsGroup" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <button class="btn btn-outline btn-sm" onclick="downloadSampleExcelTemplate()">📥 Download Template</button>
+          <button class="btn btn-emerald btn-sm" onclick="openModal('excelUploadModal')">📊 Bulk Upload</button>
+          <button class="btn btn-outline btn-sm" onclick="exportMembersList()">📤 Export Members</button>
+          <button class="btn btn-outline btn-sm" onclick="seedSampleMembers()">🌱 Seed Sample 50</button>
+          <button class="btn btn-sm" onclick="showAddMemberModal()">+ Add Member</button>
         </div>
       </div>
 

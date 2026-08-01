@@ -146,17 +146,24 @@ async function checkAuthSession() {
         authBtnMobile.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg> Logout';
       }
       
-      // RBAC UI modifications for management roles
+      // RBAC UI modifications for management roles (admin, president, secretary, treasurer, manager)
       const usersTabBtns = document.querySelectorAll('button[onclick="switchTab(\'users\')"]');
-      const restoreBtn = document.querySelector('button[onclick="openModal(\'importBackupModal\')"]');
+      const backupBtn = document.getElementById('backupDataBtn');
+      const restoreBtn = document.getElementById('restoreBackupBtn');
       const eraseBtn = document.getElementById('eraseAllBtn');
+      const eraseDivider = document.getElementById('eraseDivider');
+      const memberActionGroup = document.getElementById('memberActionButtonsGroup');
       const isManager = data.user && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((data.user.role || '').toLowerCase());
 
       usersTabBtns.forEach(btn => {
         btn.style.display = isManager ? 'flex' : 'none';
       });
-      if (restoreBtn) restoreBtn.style.display = isManager ? 'inline-block' : 'none';
-      if (eraseBtn) eraseBtn.style.display = data.user.role === 'admin' ? 'inline-block' : 'none';
+
+      if (backupBtn) backupBtn.style.display = isManager ? 'flex' : 'none';
+      if (restoreBtn) restoreBtn.style.display = isManager ? 'flex' : 'none';
+      if (eraseBtn) eraseBtn.style.display = isManager ? 'flex' : 'none';
+      if (eraseDivider) eraseDivider.style.display = isManager ? 'block' : 'none';
+      if (memberActionGroup) memberActionGroup.style.display = isManager ? 'flex' : 'none';
 
       if (!isManager) {
         const usersSection = document.getElementById('users');

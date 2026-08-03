@@ -38,23 +38,20 @@
         <p class="login-subtitle">Financial & Member Management System</p>
       </div>
 
-      <!-- Default Admin Credentials Hint -->
-      <div style="background: rgba(37, 99, 235, 0.12); border: 1px solid rgba(37, 99, 235, 0.3); border-radius: 10px; padding: 12px 14px; margin-bottom: 20px; font-size: 0.85rem;">
-        <div style="font-weight: 700; color: #F8FAFC; margin-bottom: 4px;">🔑 Default Credentials:</div>
-        <div style="color: #94A3B8;">Email: <strong style="color: #60A5FA;">kpnsclub@gmail.com</strong></div>
-        <div style="color: #94A3B8;">Password: <strong style="color: #60A5FA;">admin123</strong></div>
-      </div>
-
       <!-- Login Form -->
       <form id="loginForm" onsubmit="performLogin(event)">
         <div class="form-group">
           <label>Email Address *</label>
           <input type="email" id="loginEmail" class="form-control" placeholder="kpnsclub@gmail.com" required>
         </div>
-        <div class="form-group">
-          <label>Password *</label>
-          <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required>
-        </div>
+          <div class="form-group">
+            <label>Password *</label>
+            <div class="password-wrapper" style="position:relative;">
+              <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required style="padding-right: 40px;">
+              <button type="button" id="togglePasswordBtn" class="eye-btn" onclick="togglePasswordVisibility()" style="position:absolute; right:10px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:1.2rem;" title="Show Password">👁️</button>
+            </div>
+          </div>
+          <div id="loginMessage" class="login-message" style="margin-top:8px; font-weight:500;"></div>
         <button type="submit" class="btn btn-emerald" style="width: 100%; padding: 12px; font-size: 1rem;">🔑 Sign In</button>
       </form>
 
@@ -278,10 +275,10 @@
       <div class="section-header">
         <h2 class="section-title">👥 Organization Members</h2>
         <div id="memberActionButtonsGroup" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-          <button class="btn btn-outline btn-sm" onclick="downloadSampleExcelTemplate()">📥 Download Template</button>
-          <button class="btn btn-emerald btn-sm" onclick="openModal('excelUploadModal')">📊 Bulk Upload</button>
+          <button id="downloadTemplateBtn" class="btn btn-outline btn-sm" onclick="downloadSampleExcelTemplate()">📥 Download Template</button>
+          <button id="bulkUploadBtn" class="btn btn-emerald btn-sm" onclick="openModal('excelUploadModal')">📊 Bulk Upload</button>
           <button class="btn btn-outline btn-sm" onclick="exportMembersList()">📤 Export Members</button>
-          <button class="btn btn-outline btn-sm" onclick="seedSampleMembers()">🌱 Seed Sample 50</button>
+          <button id="seedSampleBtn" class="btn btn-outline btn-sm" onclick="seedSampleMembers()">🌱 Seed Sample 50</button>
           <button class="btn btn-sm" onclick="showAddMemberModal()">+ Add Member</button>
         </div>
       </div>
@@ -430,21 +427,21 @@
             <p id="passbookMemberCode" style="color: var(--text-secondary);">Code: - | Phone: -</p>
           </div>
           <div style="text-align: right;">
-            <p style="font-size: 0.85rem; color: var(--text-secondary);">Period: <span id="passbookPeriodText">All Time</span></p>
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">Statement Period: <span id="passbookPeriodText">All Time</span></p>
             <p style="font-size: 1.1rem; font-weight: 800; color: var(--accent-emerald);">KPNS ORGANIZATION</p>
           </div>
         </div>
 
         <div class="metrics-grid" style="margin-bottom: 16px;">
           <div class="metric-card">
-            <span class="metric-title">Previous Due Balance</span>
+            <span class="metric-title">Opening Balance</span>
             <span class="metric-value" id="passbookPrevDue">₹0</span>
-            <span class="metric-sub">Balance before selected start date</span>
+            <span class="metric-sub">Balance carried forward from before selected period</span>
           </div>
           <div class="metric-card emerald">
-            <span class="metric-title">Current Due Balance</span>
+            <span class="metric-title">Closing Due Balance</span>
             <span class="metric-value text-emerald" id="passbookCurrentDue">₹0</span>
-            <span class="metric-sub">Net pending dues</span>
+            <span class="metric-sub">Current outstanding dues as on end date</span>
           </div>
         </div>
 
@@ -453,15 +450,16 @@
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Entry Type</th>
-                <th>Description</th>
-                <th>Debit (Dues Imposed)</th>
-                <th>Credit (Payment Received)</th>
-                <th>Running Due Balance</th>
+                <th>Transaction Type</th>
+                <th>Particulars</th>
+                <th>Event Fee</th>
+                <th>Charges (Debit)</th>
+                <th>Payments (Credit)</th>
+                <th>Balance</th>
               </tr>
             </thead>
             <tbody id="passbookTableBody">
-              <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Please select a member to view passbook.</td></tr>
+              <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Please select a member to view passbook.</td></tr>
             </tbody>
           </table>
         </div>
@@ -663,7 +661,6 @@
           <div class="form-group">
             <label>Contribution Amount (₹) Per Member *</label>
             <input type="number" step="0.01" id="eAmount" class="form-control" required placeholder="e.g. 500">
-            <small style="color: var(--accent-gold); display: block; margin-top: 4px;">⚠️ This amount will be automatically imposed for all active members.</small>
           </div>
           <div class="form-group">
             <label>Event Date *</label>
@@ -673,7 +670,21 @@
             <label>Description</label>
             <textarea id="eDesc" class="form-control" rows="3" placeholder="Event details..."></textarea>
           </div>
-          <button type="submit" class="btn" style="width: 100%;">Create Event & Impose Dues</button>
+          
+          <!-- Impose for all members checkbox -->
+          <div class="form-group" style="background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.25); border-radius: 10px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px;">
+            <input type="checkbox" id="eImposeAll" checked
+              style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent-primary);cursor:pointer;flex-shrink:0;"
+              onchange="toggleImposeWarning(this.checked)">
+            <div>
+              <label for="eImposeAll" style="cursor:pointer;font-weight:600;color:var(--text-primary);font-size:0.9rem;display:block;margin-bottom:4px;">
+                Impose this contribution amount for every active member
+              </label>
+              <small id="eImposeNote" style="color:var(--accent-warning);display:block;">⚠️ When checked, ₹ contribution dues will be automatically created for all active members.</small>
+            </div>
+          </div>
+
+          <button type="submit" class="btn" id="eSubmitBtn" style="width: 100%; margin-top: 12px;">Create Event &amp; Impose Dues</button>
         </form>
       </div>
     </div>

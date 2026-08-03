@@ -139,9 +139,18 @@ router.get('/event/:eventId', async (req, res) => {
     const event = await db.queryOne(`SELECT * FROM events WHERE id = ?`, [eventId]);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    const allDues = await db.queryAll(`SELECT * FROM event_dues WHERE event_id = ?`, [eventId]);
-    const allTransactions = await db.queryAll(`SELECT * FROM transactions WHERE event_id = ?`, [eventId]);
-    const allExpenses = await db.queryAll(`SELECT * FROM expenses WHERE event_id = ?`, [eventId]);
+    const rawDues = await db.queryAll(`SELECT * FROM event_dues`);
+    const allDues = rawDues.filter(d => String(d.event_id) === String(eventId));
+
+    const rawTransactions = await db.queryAll(`SELECT * FROM transactions`);
+    const allTransactions = rawTransactions.filter(t => {
+      if (!t.event_id) return false;
+      const ids = String(t.event_id).split(',').map(s => s.trim());
+      return ids.includes(String(eventId));
+    });
+
+    const rawExpenses = await db.queryAll(`SELECT * FROM expenses`);
+    const allExpenses = rawExpenses.filter(ex => String(ex.event_id) === String(eventId));
 
     let total_imposed_dues = 0;
     let total_collected_dues = 0;

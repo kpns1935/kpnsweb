@@ -53,10 +53,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create new event and impose contribution amount on all members
+// Create new event and optionally impose contribution amount on all members
 router.post('/', async (req, res) => {
   try {
-    const { title, description, contribution_amount, event_date } = req.body;
+    const { title, description, contribution_amount, event_date, impose_for_all } = req.body;
     if (!title || !contribution_amount || !event_date) {
       return res.status(400).json({ error: 'Title, contribution amount, and event date are required' });
     }
@@ -74,24 +74,35 @@ router.post('/', async (req, res) => {
 
     const eventId = eventResult.lastID;
 
-    // Fetch only active members
-    const members = await db.queryAll(`SELECT id FROM members`);
-    const activeMembers = members.filter(m => (m.member_status || 'ACTIVE').toUpperCase() === 'ACTIVE');
+    // Only impose dues if impose_for_all is explicitly true (checked)
+    const shouldImpose = impose_for_all === true || impose_for_all === 'true';
+    let imposedCount = 0;
 
-    // Impose contribution on every member
-    for (const member of activeMembers) {
-      await db.execute(
-        `INSERT INTO event_dues (event_id, member_id, amount, paid_amount, status) VALUES (?, ?, ?, 0, 'pending')`,
-        [eventId, member.id, amountNum]
-      );
+    if (shouldImpose) {
+      // Fetch only active members
+      const members = await db.queryAll(`SELECT id FROM members`);
+      const activeMembers = members.filter(m => (m.member_status || 'ACTIVE').toUpperCase() === 'ACTIVE');
+
+      // Impose contribution on every active member
+      for (const member of activeMembers) {
+        await db.execute(
+          `INSERT INTO event_dues (event_id, member_id, amount, paid_amount, status) VALUES (?, ?, ?, 0, 'pending')`,
+          [eventId, member.id, amountNum]
+        );
+      }
+      imposedCount = activeMembers.length;
     }
+
+    const message = shouldImpose
+      ? `Event '${title}' created and ₹${amountNum} imposed for all ${imposedCount} active members.`
+      : `Event '${title}' created successfully. No dues imposed — you can add them manually per member.`;
 
     res.json({
       success: true,
       eventId,
-      imposedMembersCount: activeMembers.length,
+      imposedMembersCount: imposedCount,
       contributionAmount: amountNum,
-      message: `Event '${title}' created successfully and ₹${amountNum} imposed for all ${activeMembers.length} members.`
+      message
     });
 
   } catch (err) {

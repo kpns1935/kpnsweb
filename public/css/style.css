@@ -379,7 +379,7 @@ header {
   border-bottom: 1px solid var(--glass-border);
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 1000;
   height: 56px;
   padding: 0 24px;
   display: flex;
@@ -1175,9 +1175,9 @@ tr:hover td {
 .nav-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1206,6 +1206,7 @@ body {
     background: #0F172A;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+    z-index: 1000;
   }
   
   .mobile-toggle {

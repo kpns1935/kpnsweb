@@ -105,6 +105,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
 });
 
+// Helper to check management roles (admin, president, secretary, treasurer, manager)
+function isManagementRole(userOrRole) {
+  if (!userOrRole) return false;
+  const role = typeof userOrRole === 'object' ? (userOrRole.role || '') : userOrRole;
+  if (!role) return false;
+  const cleanRole = String(role).trim().toLowerCase();
+  const validRoles = ['admin', 'president', 'secretary', 'treasurer', 'manager'];
+  return validRoles.some(r => cleanRole.includes(r));
+}
+
+// Toggle Show/Hide Password
+function togglePasswordVisibility(inputId = 'loginPassword', btnId = 'togglePasswordBtn') {
+  const pwdInput = document.getElementById(inputId);
+  const btn = document.getElementById(btnId);
+  if (!pwdInput) return;
+  if (pwdInput.type === 'password') {
+    pwdInput.type = 'text';
+    if (btn) btn.innerHTML = '🙈';
+  } else {
+    pwdInput.type = 'password';
+    if (btn) btn.innerHTML = '👁️';
+  }
+}
+
 // Check Session & Auth
 async function checkAuthSession() {
   try {
@@ -146,26 +170,36 @@ async function checkAuthSession() {
         authBtnMobile.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:8px;vertical-align:middle;"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg> Logout';
       }
       
-      // RBAC UI modifications for management roles (admin, president, secretary, treasurer, manager)
+      // Users tab button is visible strictly for ADMIN users
       const usersTabBtns = document.querySelectorAll('button[onclick="switchTab(\'users\')"]');
       const backupBtn = document.getElementById('backupDataBtn');
       const restoreBtn = document.getElementById('restoreBackupBtn');
       const eraseBtn = document.getElementById('eraseAllBtn');
       const eraseDivider = document.getElementById('eraseDivider');
       const memberActionGroup = document.getElementById('memberActionButtonsGroup');
-      const isManager = data.user && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((data.user.role || '').toLowerCase());
+      const downloadTemplateBtn = document.getElementById('downloadTemplateBtn');
+      const bulkUploadBtn = document.getElementById('bulkUploadBtn');
+      const seedSampleBtn = document.getElementById('seedSampleBtn');
+      
+      const isAdmin = data.user && (data.user.role || '').toLowerCase() === 'admin';
+      const isManager = data.user && isManagementRole(data.user);
 
       usersTabBtns.forEach(btn => {
-        btn.style.display = isManager ? 'flex' : 'none';
+        btn.style.display = isAdmin ? 'flex' : 'none';
       });
 
-      if (backupBtn) backupBtn.style.display = isManager ? 'flex' : 'none';
-      if (restoreBtn) restoreBtn.style.display = isManager ? 'flex' : 'none';
-      if (eraseBtn) eraseBtn.style.display = isManager ? 'flex' : 'none';
-      if (eraseDivider) eraseDivider.style.display = isManager ? 'block' : 'none';
+      if (backupBtn) backupBtn.style.display = isAdmin ? 'flex' : 'none';
+      if (restoreBtn) restoreBtn.style.display = isAdmin ? 'flex' : 'none';
+      if (eraseBtn) eraseBtn.style.display = isAdmin ? 'flex' : 'none';
+      if (eraseDivider) eraseDivider.style.display = isAdmin ? 'block' : 'none';
       if (memberActionGroup) memberActionGroup.style.display = isManager ? 'flex' : 'none';
 
-      if (!isManager) {
+      // Admin-only member action buttons
+      if (downloadTemplateBtn) downloadTemplateBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+      if (bulkUploadBtn) bulkUploadBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+      if (seedSampleBtn) seedSampleBtn.style.display = isAdmin ? 'inline-flex' : 'none';
+
+      if (!isAdmin) {
         const usersSection = document.getElementById('users');
         if (usersSection && usersSection.classList.contains('active')) {
           switchTab('dashboard');
@@ -566,9 +600,9 @@ async function loadMembersData() {
         <td>${formatDate(m.dob)}</td>
         <td>
           <span class="badge ${m.member_status === 'Active' ? 'badge-completed' : 'badge-pending'}" 
-                style="${currentUser && currentUser.role === 'admin' ? 'cursor: pointer;' : 'cursor: default;'}" 
+                style="${isManagementRole(currentUser) ? 'cursor: pointer;' : 'cursor: default;'}" 
                 onclick="toggleMemberStatus(${m.id}, '${m.member_status || 'Active'}')" 
-                title="${currentUser && currentUser.role === 'admin' ? 'Click to toggle status' : 'Status'}">
+                title="${isManagementRole(currentUser) ? 'Click to toggle status' : 'Status'}">
             ${(m.member_status || 'Active').toUpperCase()}
           </span>
         </td>
@@ -576,7 +610,7 @@ async function loadMembersData() {
         <td>
           <div style="display: flex; gap: 6px; flex-wrap: wrap;">
             <button class="btn btn-outline btn-sm" onclick="openPassbookForMember(${m.id})">📖 Passbook</button>
-            ${currentUser && currentUser.role === 'admin' ? `
+            ${isManagementRole(currentUser) ? `
               <button class="btn btn-outline btn-sm" onclick="editMember(${m.id})">✏️ Edit</button>
             ` : ''}
           </div>
@@ -723,7 +757,7 @@ async function loadEventsData() {
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn btn-outline btn-sm" onclick="viewEventPendingMembers(${e.id})">👥 Pending List</button>
             <button class="btn btn-outline btn-sm" onclick="openEventReport(${e.id})">📊 Report</button>
-            ${currentUser && currentUser.role === 'admin' ? `
+            ${isManagementRole(currentUser) ? `
               <button class="btn btn-outline btn-sm" onclick="editEvent(${e.id})">✏️ Edit</button>
               <button class="btn btn-rose btn-sm" onclick="deleteEvent(${e.id})">🗑️ Delete</button>
             ` : ''}
@@ -768,6 +802,7 @@ async function saveEvent(e) {
   const contribution_amount = document.getElementById('eAmount').value;
   const event_date = document.getElementById('eDate').value;
   const description = document.getElementById('eDesc').value;
+  const impose_for_all = document.getElementById('eImposeAll') ? document.getElementById('eImposeAll').checked : true;
 
   const url = editingEventId ? `/api/events/${editingEventId}` : '/api/events';
   const method = editingEventId ? 'PUT' : 'POST';
@@ -775,21 +810,43 @@ async function saveEvent(e) {
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, contribution_amount, event_date, description })
+    body: JSON.stringify({ title, contribution_amount, event_date, description, impose_for_all })
   });
   const data = await res.json();
   if (data.success) {
     showToast(data.message || 'Event saved successfully.', 'success');
     closeModal('eventModal');
     document.getElementById('eventForm').reset();
+    // Reset checkbox and submit button label
+    const cb = document.getElementById('eImposeAll');
+    if (cb) { cb.checked = true; toggleImposeWarning(true); }
     editingEventId = null;
     document.querySelector('#eventModal .modal-header h3').innerText = 'Create Event & Impose Contribution';
-    document.querySelector('#eventForm button[type="submit"]').innerText = 'Create Event & Impose Dues';
+    const submitBtn = document.getElementById('eSubmitBtn');
+    if (submitBtn) submitBtn.innerText = 'Create Event & Impose Dues';
     loadEventsData();
     loadMembersData();
     loadDashboardData();
   } else {
     showToast(data.error || 'Failed to create event', 'error');
+  }
+}
+
+// Toggle impose warning note and submit button label based on checkbox
+function toggleImposeWarning(checked) {
+  const note = document.getElementById('eImposeNote');
+  const submitBtn = document.getElementById('eSubmitBtn');
+  if (note) {
+    if (checked) {
+      note.style.color = 'var(--accent-warning)';
+      note.textContent = '⚠️ When checked, ₹ contribution dues will be automatically created for all active members.';
+    } else {
+      note.style.color = 'var(--text-muted)';
+      note.textContent = 'ℹ️ No dues will be imposed. You can manually add dues later per member.';
+    }
+  }
+  if (submitBtn && !editingEventId) {
+    submitBtn.textContent = checked ? 'Create Event & Impose Dues' : 'Create Event (No Dues)';
   }
 }
 
@@ -815,7 +872,7 @@ async function loadTransactionsData() {
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn btn-outline btn-sm" onclick="viewReceipt(${t.id})">🧾 Sleep</button>
-            ${currentUser && currentUser.role === 'admin' ? `
+            ${isManagementRole(currentUser) ? `
               <button class="btn btn-outline btn-sm" onclick="editTransaction(${t.id})">✏️ Edit</button>
               <button class="btn btn-rose btn-sm" onclick="deleteTransaction(${t.id})">🗑️ Delete</button>
             ` : ''}
@@ -1067,7 +1124,7 @@ async function loadExpensesData() {
         <td>${ex.paid_to || '-'}</td>
         <td class="text-rose"><strong>${formatINR(ex.amount)}</strong></td>
         <td>
-          ${currentUser && currentUser.role === 'admin' ? `
+          ${isManagementRole(currentUser) ? `
             <div style="display:flex;gap:6px;">
               <button class="btn btn-outline btn-sm" onclick="editExpense(${ex.id})">✏️ Edit</button>
               <button class="btn btn-rose btn-sm" onclick="deleteExpense(${ex.id})">🗑️ Delete</button>
@@ -1196,44 +1253,99 @@ async function loadPassbook() {
     const res = await fetch(url);
     const data = await res.json();
 
-    document.getElementById('passbookMemberName').innerText = `${data.member.name} (S/O ${data.member.father_name || 'N/A'})`;
-    document.getElementById('passbookMemberCode').innerText = `Form No: ${data.member.form_no || '-'} | Member ID: ${data.member.member_code} | Mobile: ${data.member.phone} | Status: ${data.member.member_status || 'Active'}`;
+    const m = data.member;
 
-    document.getElementById('passbookPeriodText').innerText = `${formatDate(data.from_date)} to ${formatDate(data.to_date)}`;
-    
+    // Helper: format date as "01 Jan 1970"
+    const fmtLong = (d) => {
+      if (!d) return '-';
+      const dt = new Date(d.length === 10 ? d + 'T00:00:00' : d);
+      return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    };
+
+    document.getElementById('passbookMemberName').innerText = `${m.name} (S/O ${m.father_name || 'N/A'})`;
+
+    const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${(m.member_status||'Active').toUpperCase()==='ACTIVE'?'#22c55e':'#ef4444'};margin-right:4px;"></span>`;
+    document.getElementById('passbookMemberCode').innerHTML =
+      `Form No: ${m.form_no || '-'} &nbsp;|&nbsp; Member ID: ${m.member_code} &nbsp;|&nbsp; Mobile: ${m.phone} &nbsp;|&nbsp; Member Status: ${statusDot}${m.member_status || 'Active'}`;
+
+    // Statement Period: "01 Jan 1970 – 03 Aug 2026"
+    document.getElementById('passbookPeriodText').innerText = `${fmtLong(data.from_date)} – ${fmtLong(data.to_date)}`;
+
     document.getElementById('passbookPrevDue').innerText = formatINR(data.previous_due_balance);
     document.getElementById('passbookCurrentDue').innerText = formatINR(data.current_due_balance);
 
     const tbody = document.getElementById('passbookTableBody');
-    
+
+    // Balance cell helper: show "₹x Due" / "₹0.00 ✓ Cleared"
+    const balanceCell = (bal) => {
+      if (bal <= 0) {
+        return `<td><strong class="text-emerald">${formatINR(0)}</strong><br><small style="color:var(--accent-success);font-size:0.72rem;font-weight:600;">✓ Cleared</small></td>`;
+      }
+      return `<td><strong class="text-rose">${formatINR(bal)}</strong><br><small style="color:var(--accent-danger);font-size:0.72rem;font-weight:600;">Due</small></td>`;
+    };
+
+    // Opening balance row
+    const openingBal = data.previous_due_balance;
     let html = `
-      <tr style="background: rgba(245, 158, 11, 0.1);">
-        <td><strong>${formatDate(data.from_date)}</strong></td>
-        <td><span class="badge badge-partial">OPENING BALANCE</span></td>
-        <td><strong>PREVIOUS DUE BALANCE BEFORE ${formatDate(data.from_date)}</strong></td>
-        <td>-</td>
-        <td>-</td>
-        <td class="text-gold"><strong>${formatINR(data.previous_due_balance)}</strong></td>
+      <tr style="background: rgba(245, 158, 11, 0.08);">
+        <td><strong>${fmtLong(data.from_date)}</strong></td>
+        <td><span class="badge badge-partial" style="font-size:0.72rem;">Opening Balance</span></td>
+        <td><strong>Opening Balance as on ${fmtLong(data.from_date)}</strong></td>
+        <td style="color:var(--text-muted);">–</td>
+        <td style="color:var(--text-muted);">–</td>
+        <td style="color:var(--text-muted);">–</td>
+        ${balanceCell(openingBal)}
       </tr>
     `;
 
     if (data.entries && data.entries.length > 0) {
-      html += data.entries.map(item => `
-        <tr>
-          <td>${formatDate(item.date)}</td>
-          <td>
-            <span class="badge ${item.entry_type === 'DUE_IMPOSED' ? 'badge-pending' : (item.entry_type === 'DUES_PAYMENT' ? 'badge-completed' : 'badge-partial')}">
-              ${item.entry_type}
-            </span>
-          </td>
-          <td>${item.description}</td>
-          <td class="text-rose">${item.debit > 0 ? formatINR(item.debit) : '-'}</td>
-          <td class="text-emerald">${item.credit > 0 ? formatINR(item.credit) : '-'}</td>
-          <td><strong class="${item.due_balance > 0 ? 'text-rose' : 'text-emerald'}">${formatINR(item.due_balance)}</strong></td>
-        </tr>
-      `).join('');
+      html += data.entries.map(item => {
+        const isDue = item.entry_type === 'DUE_IMPOSED';
+        const isPayment = item.entry_type === 'DUES_PAYMENT';
+        const isDonation = item.entry_type === 'DONATION_PAYMENT';
+
+        // Transaction Type label & badge
+        let txLabel, badgeClass;
+        if (isDue)       { txLabel = 'Charge Applied';    badgeClass = 'badge-pending'; }
+        else if (isPayment)  { txLabel = 'Payment Received'; badgeClass = 'badge-completed'; }
+        else if (isDonation) { txLabel = 'Donation';        badgeClass = 'badge-partial'; }
+        else                 { txLabel = item.entry_type;   badgeClass = 'badge-partial'; }
+
+        // Particulars
+        let particulars;
+        if (isDue) {
+          particulars = `Event Fee – ${item.description}`;
+        } else if (isPayment) {
+          // Extract receipt no from description ("KPNS-MR-2026-011 - Event Name")
+          const receiptMatch = item.description.match(/^([^\s-][^\s]*(?:-[^\s]+)*)\s*-\s*/);
+          const receiptNo = receiptMatch ? receiptMatch[1] : (item.receipt_no || '');
+          const eventName = item.description.replace(/^[^-]+-\s*/, '').trim();
+          particulars = `Payment for ${eventName}<br><small style="color:var(--text-muted);font-size:0.75rem;">Receipt: ${receiptNo}</small>`;
+        } else if (isDonation) {
+          particulars = item.description;
+        } else {
+          particulars = item.description;
+        }
+
+        // Event Fee column
+        const eventFeeCell = isDue && item.contribution_amount > 0
+          ? `<td class="text-gold"><strong>${formatINR(item.contribution_amount)}</strong></td>`
+          : `<td style="color:var(--text-muted);">–</td>`;
+
+        return `
+          <tr>
+            <td style="white-space:nowrap;">${fmtLong(item.date)}</td>
+            <td><span class="badge ${badgeClass}" style="font-size:0.72rem;white-space:nowrap;">${txLabel}</span></td>
+            <td>${particulars}</td>
+            ${eventFeeCell}
+            <td class="text-rose">${item.debit > 0 ? formatINR(item.debit) : '–'}</td>
+            <td class="text-emerald">${item.credit > 0 ? formatINR(item.credit) : '–'}</td>
+            ${balanceCell(item.due_balance)}
+          </tr>
+        `;
+      }).join('');
     } else {
-      html += `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No transaction activity found in selected date range.</td></tr>`;
+      html += `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">No transaction activity found in selected date range.</td></tr>`;
     }
 
     tbody.innerHTML = html;
@@ -1284,12 +1396,18 @@ async function generateReport() {
     const res = await fetch(url);
     const rData = await res.json();
 
+    if (!res.ok || rData.error) {
+      showToast(rData.error || 'Failed to generate report', 'error');
+      return;
+    }
+
     if (type === 'event') {
       renderEventReportView(rData, container);
     } else {
       renderFinancialReportView(rData, container);
     }
   } catch (err) {
+    console.error('Report generation error:', err);
     showToast('Failed to generate report', 'error');
   }
 }
@@ -1384,11 +1502,18 @@ function renderFinancialReportView(data, container) {
 }
 
 function renderEventReportView(data, container) {
+  if (!data || !data.event) {
+    container.innerHTML = `<div style="text-align: center; color: var(--accent-rose); padding: 40px 0;">Event report data not found.</div>`;
+    return;
+  }
   const ev = data.event;
+  const dues = data.dues || [];
+  const expenses = data.expenses || [];
+
   container.innerHTML = `
-    <div style="border-bottom: 2px stroke var(--border-color); padding-bottom: 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+    <div style="border-bottom: 2px solid var(--glass-border); padding-bottom: 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
       <div>
-        <h2 style="color: var(--accent-gold); font-size: 1.5rem;">EVENT BALANCE SHEET: ${ev.title.toUpperCase()}</h2>
+        <h2 style="color: var(--accent-gold); font-size: 1.5rem;">EVENT BALANCE SHEET: ${(ev.title || '').toUpperCase()}</h2>
         <p style="color: var(--text-secondary);">Event Date: ${formatDate(ev.event_date)} | Contribution Imposed: ${formatINR(ev.contribution_amount)} Per Member</p>
       </div>
       <img src="assets/logo.png" style="width: 50px; height: 50px;">
@@ -1397,24 +1522,24 @@ function renderEventReportView(data, container) {
     <div class="metrics-grid" style="margin-bottom: 24px;">
       <div class="metric-card">
         <span class="metric-title">Total Imposed Dues</span>
-        <span class="metric-value">${formatINR(data.total_imposed_dues)}</span>
+        <span class="metric-value">${formatINR(data.total_imposed_dues || 0)}</span>
       </div>
       <div class="metric-card emerald">
         <span class="metric-title">Dues Collected</span>
-        <span class="metric-value text-emerald">${formatINR(data.total_collected_dues)}</span>
+        <span class="metric-value text-emerald">${formatINR(data.total_collected_dues || 0)}</span>
       </div>
       <div class="metric-card rose">
         <span class="metric-title">Pending Dues</span>
-        <span class="metric-value text-rose">${formatINR(data.total_pending_dues)}</span>
+        <span class="metric-value text-rose">${formatINR(data.total_pending_dues || 0)}</span>
       </div>
       <div class="metric-card blue">
         <span class="metric-title">Event Expenses</span>
-        <span class="metric-value text-rose">${formatINR(data.total_expenses)}</span>
+        <span class="metric-value text-rose">${formatINR(data.total_expenses || 0)}</span>
       </div>
     </div>
 
-    <h3 style="margin-bottom: 12px; color: var(--accent-gold);">Member Dues Collection Breakdown</h3>
-    <div class="table-responsive">
+    <h3 style="margin-bottom: 12px; color: var(--accent-gold);">Member Dues Collection Breakdown (${dues.length} Members)</h3>
+    <div class="table-responsive" style="margin-bottom: 24px;">
       <table>
         <thead>
           <tr>
@@ -1426,18 +1551,46 @@ function renderEventReportView(data, container) {
           </tr>
         </thead>
         <tbody>
-          ${data.dues.map(d => `
+          ${dues.map(d => `
             <tr>
-              <td><strong class="text-gold">${d.member_code}</strong></td>
-              <td>${d.member_name}</td>
-              <td>${formatINR(d.amount)}</td>
-              <td class="text-emerald">${formatINR(d.paid_amount)}</td>
-              <td><span class="badge ${d.status === 'completed' ? 'badge-completed' : 'badge-pending'}">${d.status.toUpperCase()}</span></td>
+              <td><strong class="text-gold">${d.member_code || '-'}</strong></td>
+              <td>${d.member_name || '-'}</td>
+              <td>${formatINR(d.amount || 0)}</td>
+              <td class="text-emerald">${formatINR(d.paid_amount || 0)}</td>
+              <td><span class="badge ${d.status === 'completed' ? 'badge-completed' : 'badge-pending'}">${(d.status || 'pending').toUpperCase()}</span></td>
             </tr>
-          `).join('')}
+          `).join('') || '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No member dues found for this event.</td></tr>'}
         </tbody>
       </table>
     </div>
+
+    ${expenses.length > 0 ? `
+      <h3 style="margin-bottom: 12px; color: var(--accent-rose);">Event Expenses Breakdown (${expenses.length} Records)</h3>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Voucher No</th>
+              <th>Expense Date</th>
+              <th>Title</th>
+              <th>Paid To</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${expenses.map(ex => `
+              <tr>
+                <td><strong class="text-gold">${ex.voucher_no || '-'}</strong></td>
+                <td>${formatDate(ex.expense_date)}</td>
+                <td>${ex.title || '-'}</td>
+                <td>${ex.paid_to || '-'}</td>
+                <td class="text-rose"><strong>${formatINR(ex.amount || 0)}</strong></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    ` : ''}
   `;
 }
 
@@ -1445,6 +1598,9 @@ function renderEventReportView(data, container) {
 let usersList = [];
 
 async function loadUsersData() {
+  const isAdmin = currentUser && (currentUser.role || '').toLowerCase() === 'admin';
+  if (!isAdmin) return;
+
   try {
     const res = await fetch('/api/auth/users');
     if (!res.ok) return;
@@ -1452,8 +1608,6 @@ async function loadUsersData() {
     if (!Array.isArray(users)) return;
 
     usersList = users; // Cache for editUser
-
-    const isManager = currentUser && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((currentUser.role || '').toLowerCase());
 
     const tbody = document.getElementById('usersTableBody');
     tbody.innerHTML = users.map(u => `
@@ -1464,12 +1618,10 @@ async function loadUsersData() {
         <td><span class="badge badge-completed">${u.role.toUpperCase()}</span></td>
         <td>${formatDate(u.created_at)}</td>
         <td>
-          ${isManager ? `
-            <div style="display:flex;gap:6px;">
-              <button class="btn btn-outline btn-sm" onclick="editUser(${u.id})">&#9999;&#65039; Edit</button>
-              ${u.email !== 'kpnsclub@gmail.com' ? `<button class="btn btn-rose btn-sm" onclick="deleteUser(${u.id})">&#128465;&#65039; Delete</button>` : `<span style="font-size:0.75rem;color:var(--text-muted);padding:4px 8px;">🔒 Default</span>`}
-            </div>
-          ` : '-'}
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-outline btn-sm" onclick="editUser(${u.id})">&#9999;&#65039; Edit</button>
+            ${u.email !== 'kpnsclub@gmail.com' ? `<button class="btn btn-rose btn-sm" onclick="deleteUser(${u.id})">&#128465;&#65039; Delete</button>` : `<span style="font-size:0.75rem;color:var(--text-muted);padding:4px 8px;">🔒 Default</span>`}
+          </div>
         </td>
       </tr>
     `).join('') || '<tr><td colspan="6">No app users found.</td></tr>';
@@ -1669,6 +1821,12 @@ function switchTab(tabId) {
   });
 
   if (tabId === 'users') {
+    const isAdmin = currentUser && (currentUser.role || '').toLowerCase() === 'admin';
+    if (!isAdmin) {
+      showToast('Users Management tab is restricted to Admin users only.', 'warning');
+      switchTab('dashboard');
+      return;
+    }
     loadUsersData();
   }
 
@@ -1891,8 +2049,8 @@ function formatDate(dateStr) {
 }
 
 async function toggleMemberStatus(memberId, currentStatus) {
-  if (!currentUser || currentUser.role !== 'admin') {
-    alert('Only Admin users can change member status.');
+  if (!isManagementRole(currentUser)) {
+    showToast('Management role required to change member status.', 'warning');
     return;
   }
   const newStatus = (currentStatus === 'Active') ? 'Inactive' : 'Active';

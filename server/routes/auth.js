@@ -49,11 +49,12 @@ router.get('/me', (req, res) => {
   }
 });
 
-const isManagementUser = (user) => user && ['admin', 'president', 'secretary', 'treasurer', 'manager'].includes((user.role || '').toLowerCase());
+const isAdminUser = (user) => user && (user.role || '').toLowerCase() === 'admin';
 
-// List all manager/admin users
+// List all manager/admin users (Admin Only)
 router.get('/users', async (req, res) => {
   if (!req.session || !req.session.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (!isAdminUser(req.session.user)) return res.status(403).json({ error: 'Admin access required' });
   try {
     const users = await db.queryAll('SELECT id, name, email, role, created_at FROM users ORDER BY id ASC');
     res.json(users);

@@ -302,13 +302,32 @@ router.get('/:id/passbook', async (req, res) => {
     const allMemberDues = await db.queryAll('SELECT * FROM event_dues WHERE member_id = ?', [memberId]);
     const allMemberTransactions = await db.queryAll('SELECT * FROM transactions WHERE member_id = ?', [memberId]);
 
+    // Fetch events lookup map
+    const events = await db.queryAll('SELECT id, title, contribution_amount, event_date FROM events');
+    const eventMap = {};
+    for (const e of events) eventMap[e.id] = e;
+
     // 1. Calculate PREVIOUS BALANCE before from_date
     let previousDueBalance = 0;
     let prevDonationsTotal = 0;
 
     for (const d of allMemberDues) {
-      const eventDate = d.event_date || (d.events ? d.events.event_date : '');
-      if (eventDate && eventDate < fromFilter) {
+      const ev = eventMap[d.event_id] || d.events || {};
+      let eventDate = d.created_at || ev.created_at || d.event_date || ev.event_date || '';
+
+      const relatedTxs = allMemberTransactions.filter(t => 
+        (t.due_id && String(t.due_id) === String(d.id)) || 
+        (t.event_id && String(t.event_id).split(',').map(s=>s.trim()).includes(String(d.event_id)))
+      );
+      if (relatedTxs.length > 0) {
+        const earliestTxDate = relatedTxs.map(t => t.created_at).filter(Boolean).sort()[0];
+        if (earliestTxDate && (!eventDate || earliestTxDate < eventDate)) {
+          eventDate = earliestTxDate;
+        }
+      }
+
+      const eventDateOnly = (eventDate || '').slice(0, 10);
+      if (eventDateOnly && eventDateOnly < fromFilter) {
         previousDueBalance += (parseFloat(d.amount) || 0);
       }
     }
@@ -327,15 +346,34 @@ router.get('/:id/passbook', async (req, res) => {
     // 2. Fetch entries within range [from_date, to_date]
     const duesInRange = [];
     for (const d of allMemberDues) {
-      const eventDate = d.event_date || (d.events ? d.events.event_date : '');
-      if (!eventDate || (eventDate >= fromFilter && eventDate <= toFilter)) {
+      const ev = eventMap[d.event_id] || d.events || {};
+      let eventDate = d.created_at || ev.created_at || d.event_date || ev.event_date || '';
+
+      // If a payment was recorded for this event/due before the event date, use earliest payment date
+      const relatedTxs = allMemberTransactions.filter(t => 
+        (t.due_id && String(t.due_id) === String(d.id)) || 
+        (t.event_id && String(t.event_id).split(',').map(s=>s.trim()).includes(String(d.event_id)))
+      );
+      if (relatedTxs.length > 0) {
+        const earliestTxDate = relatedTxs.map(t => t.created_at).filter(Boolean).sort()[0];
+        if (earliestTxDate && (!eventDate || earliestTxDate < eventDate)) {
+          eventDate = earliestTxDate;
+        }
+      }
+
+      const eventDateOnly = (eventDate || '').slice(0, 10);
+      const eventTitle = ev.title || d.event_title || 'Event Contribution';
+      const contribAmt = parseFloat(d.contribution_amount || ev.contribution_amount || d.amount) || 0;
+
+      if (!eventDateOnly || (eventDateOnly >= fromFilter && eventDateOnly <= toFilter)) {
         duesInRange.push({
           ref_id: d.id,
           entry_type: 'DUE_IMPOSED',
-          description: d.event_title || (d.events ? d.events.title : 'Event Contribution'),
+          description: eventTitle,
+          contribution_amount: contribAmt,
           debit: parseFloat(d.amount) || 0,
           credit: 0,
-          date: eventDate || new Date().toISOString().slice(0, 10)
+          date: eventDate || new Date().toISOString()
         });
       }
     }
@@ -363,8 +401,18 @@ router.get('/:id/passbook', async (req, res) => {
       }
     }
 
-    // Combine and sort chronologically
-    const allEntries = [...duesInRange, ...transactionsInRange].sort((a, b) => new Date(a.date) - new Date(b.date));
+    // Combine and sort chronologically (DUE_IMPOSED comes first if on same timestamp or date)
+    const allEntries = [...duesInRange, ...transactionsInRange].sort((a, b) => {
+      const timeA = new Date(a.date).getTime();
+      const timeB = new Date(b.date).getTime();
+      const dayA = (a.date || '').slice(0, 10);
+      const dayB = (b.date || '').slice(0, 10);
+
+      if (dayA !== dayB) return timeA - timeB;
+      if (a.entry_type === 'DUE_IMPOSED' && b.entry_type !== 'DUE_IMPOSED') return -1;
+      if (b.entry_type === 'DUE_IMPOSED' && a.entry_type !== 'DUE_IMPOSED') return 1;
+      return timeA - timeB;
+    });
 
     // Compute running balance line by line
     let runningDueBalance = previousDueBalance;
@@ -378,6 +426,7 @@ router.get('/:id/passbook', async (req, res) => {
         date: item.date,
         entry_type: item.entry_type,
         description: item.description,
+        contribution_amount: item.contribution_amount || 0,
         debit: item.debit,
         credit: item.credit,
         receipt_no: item.receipt_no || null,

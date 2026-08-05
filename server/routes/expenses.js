@@ -46,8 +46,26 @@ router.post('/', async (req, res) => {
     // Generate unique Voucher No e.g., KPNS-EXP-2026-001 (year from expense date)
     const targetDate = (expense_date && !isNaN(new Date(expense_date).getTime())) ? new Date(expense_date) : new Date();
     const currentYear = targetDate.getFullYear();
-    const countObj = await db.queryOne(`SELECT COUNT(*) as count FROM expenses WHERE voucher_no LIKE 'KPNS-EXP-${currentYear}-%'`);
-    const voucherNo = `KPNS-EXP-${currentYear}-${String(countObj.count + 1).padStart(3, '0')}`;
+    const prefix = `KPNS-EXP-${currentYear}-`;
+    const existingExpenses = await db.queryAll(`SELECT voucher_no FROM expenses WHERE voucher_no LIKE ?`, [`${prefix}%`]);
+    let maxNum = 0;
+    for (const ex of existingExpenses) {
+      if (ex.voucher_no) {
+        const parts = ex.voucher_no.split('-');
+        const num = parseInt(parts[parts.length - 1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+    let nextNum = maxNum + 1;
+    let voucherNo = `${prefix}${String(nextNum).padStart(3, '0')}`;
+
+    // Safety loop: ensure voucherNo is unique
+    let checkExist = await db.queryOne(`SELECT id FROM expenses WHERE voucher_no = ?`, [voucherNo]);
+    while (checkExist) {
+      nextNum++;
+      voucherNo = `${prefix}${String(nextNum).padStart(3, '0')}`;
+      checkExist = await db.queryOne(`SELECT id FROM expenses WHERE voucher_no = ?`, [voucherNo]);
+    }
 
     const result = await db.execute(
       `INSERT INTO expenses (voucher_no, title, category, event_id, amount, paid_to, payment_mode, expense_date, notes)

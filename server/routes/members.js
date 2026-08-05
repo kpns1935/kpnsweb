@@ -119,14 +119,48 @@ router.post('/', async (req, res) => {
     // Auto-generate code if not provided
     let code = member_code;
     if (!code) {
-      const countObj = await db.queryOne('SELECT COUNT(*) as count FROM members');
-      code = 'KPNS-' + String(countObj.count + 1).padStart(3, '0');
+      const allMembers = await db.queryAll('SELECT member_code FROM members');
+      let maxNum = 0;
+      for (const m of allMembers) {
+        if (m.member_code) {
+          const match = m.member_code.match(/\d+/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            if (num > maxNum) maxNum = num;
+          }
+        }
+      }
+      let nextNum = maxNum + 1;
+      code = 'KPNS-' + String(nextNum).padStart(3, '0');
+      let checkCode = await db.queryOne('SELECT id FROM members WHERE member_code = ?', [code]);
+      while (checkCode) {
+        nextNum++;
+        code = 'KPNS-' + String(nextNum).padStart(3, '0');
+        checkCode = await db.queryOne('SELECT id FROM members WHERE member_code = ?', [code]);
+      }
     }
 
     let formNoVal = form_no;
     if (!formNoVal) {
-      const countObj = await db.queryOne('SELECT COUNT(*) as count FROM members');
-      formNoVal = 'F-' + String(1001 + countObj.count);
+      const allMembers = await db.queryAll('SELECT form_no FROM members');
+      let maxNum = 1000;
+      for (const m of allMembers) {
+        if (m.form_no) {
+          const match = m.form_no.match(/\d+/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            if (num > maxNum) maxNum = num;
+          }
+        }
+      }
+      let nextNum = maxNum + 1;
+      formNoVal = 'F-' + String(nextNum);
+      let checkForm = await db.queryOne('SELECT id FROM members WHERE form_no = ?', [formNoVal]);
+      while (checkForm) {
+        nextNum++;
+        formNoVal = 'F-' + String(nextNum);
+        checkForm = await db.queryOne('SELECT id FROM members WHERE form_no = ?', [formNoVal]);
+      }
     }
 
     const result = await db.execute(

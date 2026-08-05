@@ -110,8 +110,26 @@ router.post('/', async (req, res) => {
     // Generate unique receipt number e.g., KPNS-MR-2026-001
     const targetDate = (created_at && !isNaN(new Date(created_at).getTime())) ? new Date(created_at) : new Date();
     const currentYear = targetDate.getFullYear();
-    const countObj = await db.queryOne(`SELECT COUNT(*) as count FROM transactions WHERE receipt_no LIKE 'KPNS-MR-${currentYear}-%'`);
-    const receiptNo = `KPNS-MR-${currentYear}-${String(countObj.count + 1).padStart(3, '0')}`;
+    const prefix = `KPNS-MR-${currentYear}-`;
+    const existingTxs = await db.queryAll(`SELECT receipt_no FROM transactions WHERE receipt_no LIKE ?`, [`${prefix}%`]);
+    let maxNum = 0;
+    for (const t of existingTxs) {
+      if (t.receipt_no) {
+        const parts = t.receipt_no.split('-');
+        const num = parseInt(parts[parts.length - 1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+    let nextNum = maxNum + 1;
+    let receiptNo = `${prefix}${String(nextNum).padStart(3, '0')}`;
+
+    // Safety loop: ensure receiptNo is unique in case of gaps or manual entries
+    let checkExist = await db.queryOne(`SELECT id FROM transactions WHERE receipt_no = ?`, [receiptNo]);
+    while (checkExist) {
+      nextNum++;
+      receiptNo = `${prefix}${String(nextNum).padStart(3, '0')}`;
+      checkExist = await db.queryOne(`SELECT id FROM transactions WHERE receipt_no = ?`, [receiptNo]);
+    }
 
     let resolvedMemberId = member_id || null;
     let resolvedOutsideName = outside_person_name || null;

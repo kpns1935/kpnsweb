@@ -455,20 +455,9 @@ router.get('/:id/passbook', async (req, res) => {
 
     for (const d of allMemberDues) {
       const ev = eventMap[d.event_id] || d.events || {};
-      let eventDate = d.created_at || ev.created_at || d.event_date || ev.event_date || '';
-
-      const relatedTxs = allMemberTransactions.filter(t => 
-        (t.due_id && String(t.due_id) === String(d.id)) || 
-        (t.event_id && String(t.event_id).split(',').map(s=>s.trim()).includes(String(d.event_id)))
-      );
-      if (relatedTxs.length > 0) {
-        const earliestTxDate = relatedTxs.map(t => t.created_at).filter(Boolean).sort()[0];
-        if (earliestTxDate && (!eventDate || earliestTxDate < eventDate)) {
-          eventDate = earliestTxDate;
-        }
-      }
-
+      const eventDate = ev.event_date || d.event_date || d.created_at || ev.created_at || '';
       const eventDateOnly = (eventDate || '').slice(0, 10);
+
       if (eventDateOnly && eventDateOnly < fromFilter) {
         previousDueBalance += (parseFloat(d.amount) || 0);
       }
@@ -489,20 +478,8 @@ router.get('/:id/passbook', async (req, res) => {
     const duesInRange = [];
     for (const d of allMemberDues) {
       const ev = eventMap[d.event_id] || d.events || {};
-      let eventDate = d.created_at || ev.created_at || d.event_date || ev.event_date || '';
-
-      // If a payment was recorded for this event/due before the event date, use earliest payment date
-      const relatedTxs = allMemberTransactions.filter(t => 
-        (t.due_id && String(t.due_id) === String(d.id)) || 
-        (t.event_id && String(t.event_id).split(',').map(s=>s.trim()).includes(String(d.event_id)))
-      );
-      if (relatedTxs.length > 0) {
-        const earliestTxDate = relatedTxs.map(t => t.created_at).filter(Boolean).sort()[0];
-        if (earliestTxDate && (!eventDate || earliestTxDate < eventDate)) {
-          eventDate = earliestTxDate;
-        }
-      }
-
+      // Prioritize the actual Event Date (ev.event_date)
+      const eventDate = ev.event_date || d.event_date || d.created_at || ev.created_at || '';
       const eventDateOnly = (eventDate || '').slice(0, 10);
       const eventTitle = ev.title || d.event_title || 'Event Contribution';
       const contribAmt = parseFloat(d.contribution_amount || ev.contribution_amount || d.amount) || 0;

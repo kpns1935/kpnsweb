@@ -440,10 +440,18 @@ router.get('/:id/passbook', async (req, res) => {
     const fromTs = `${fromFilter} 00:00:00`;
     const toTs = `${toFilter} 23:59:59`;
 
-    // Fetch all dues and transactions for this member
-    // Use explicit column list to avoid Supabase relational join errors caused by
-    // comma-separated event_id values (e.g. "1,2,3") stored in the transactions table
-    const allMemberDues = await db.queryAll('SELECT * FROM event_dues WHERE member_id = ?', [memberId]);
+    // Fetch all dues for this member via plain select — avoid Supabase relational join issues
+    let allMemberDues = [];
+    try {
+      const { data: duesData, error: duesError } = await db.supabaseClient
+        .from('event_dues')
+        .select('*')
+        .eq('member_id', memberId);
+      if (duesError) throw new Error(duesError.message);
+      allMemberDues = duesData || [];
+    } catch (duesErr) {
+      allMemberDues = await db.queryAll('SELECT * FROM event_dues WHERE member_id = ?', [memberId]);
+    }
 
     // Fetch transactions with a plain select — avoid relational events(title) join
     // which breaks when event_id is a comma-separated string
@@ -456,19 +464,20 @@ router.get('/:id/passbook', async (req, res) => {
       if (txError) throw new Error(txError.message);
       allMemberTransactions = txData || [];
     } catch (txErr) {
-      // Fallback to db.queryAll (may work if event_ids are all integers)
       allMemberTransactions = await db.queryAll('SELECT * FROM transactions WHERE member_id = ?', [memberId]);
     }
 
-    // Fetch events lookup map
+    // Fetch events lookup map (plain select, no joins needed)
     const events = await db.queryAll('SELECT id, title, contribution_amount, event_date FROM events');
     const eventMap = {};
-    for (const e of events) eventMap[e.id] = e;
+    for (const e of events) {
+      eventMap[e.id] = e;
+      eventMap[String(e.id)] = e; // also index by string for safety
+    }
 
     // Enrich transactions with event_title from eventMap
     for (const t of allMemberTransactions) {
       if (!t.event_title && t.event_id) {
-        // event_id may be a comma-separated string — take the first one for title
         const firstEventId = String(t.event_id).split(',')[0].trim();
         const ev = eventMap[firstEventId] || eventMap[parseInt(firstEventId, 10)];
         if (ev) t.event_title = ev.title;
@@ -480,8 +489,8 @@ router.get('/:id/passbook', async (req, res) => {
     let prevDonationsTotal = 0;
 
     for (const d of allMemberDues) {
-      const ev = eventMap[d.event_id] || d.events || {};
-      const eventDate = ev.event_date || d.event_date || d.created_at || ev.created_at || '';
+      const ev = eventMap[d.event_id] || eventMap[String(d.event_id)] || {};
+      const eventDate = ev.event_date || d.event_date || d.created_at || '';
       const eventDateOnly = (eventDate || '').slice(0, 10);
 
       if (eventDateOnly && eventDateOnly < fromFilter) {
@@ -503,13 +512,14 @@ router.get('/:id/passbook', async (req, res) => {
     // 2. Fetch entries within range [from_date, to_date]
     const duesInRange = [];
     for (const d of allMemberDues) {
-      const ev = eventMap[d.event_id] || {};
-      // Prioritize the actual Event Date (ev.event_date)
-      const eventDate = ev.event_date || d.event_date || d.created_at || ev.created_at || '';
+      const ev = eventMap[d.event_id] || eventMap[String(d.event_id)] || {};
+      // Use the actual Event Date from the event record
+      const eventDate = ev.event_date || d.event_date || d.created_at || '';
       const eventDateOnly = (eventDate || '').slice(0, 10);
-      const eventTitle = ev.title || d.event_title || 'Event Contribution';
+      const eventTitle = ev.title || 'Event Contribution';
       const contribAmt = parseFloat(ev.contribution_amount || d.amount) || 0;
 
+      // Include if: no date available (always show), OR date falls within filter range
       if (!eventDateOnly || (eventDateOnly >= fromFilter && eventDateOnly <= toFilter)) {
         duesInRange.push({
           ref_id: d.id,
@@ -518,7 +528,7 @@ router.get('/:id/passbook', async (req, res) => {
           contribution_amount: contribAmt,
           debit: parseFloat(d.amount) || 0,
           credit: 0,
-          date: eventDate || new Date().toISOString()
+          date: eventDate || d.created_at || new Date().toISOString()
         });
       }
     }

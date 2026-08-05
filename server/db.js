@@ -231,7 +231,17 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
       cols.forEach((col, idx) => {
         rowObj[col] = params[idx];
       });
-      const { data, error } = await supabaseClient.from(table).insert([rowObj]).select();
+      let { data, error } = await supabaseClient.from(table).insert([rowObj]).select();
+      if (error && (error.message.includes('Could not find the') || error.code === 'PGRST204')) {
+        const missingColMatch = error.message.match(/Could not find the '([^']+)' column/i);
+        if (missingColMatch) {
+          const missingCol = missingColMatch[1];
+          delete rowObj[missingCol];
+          const retry = await supabaseClient.from(table).insert([rowObj]).select();
+          data = retry.data;
+          error = retry.error;
+        }
+      }
       if (error) throw new Error(error.message);
       const inserted = (data && data[0]) ? data[0] : {};
       return { lastID: inserted.id || null, changes: 1 };
@@ -254,7 +264,17 @@ async function runSupabaseRest(sql, params = [], type = 'all') {
       let whereCol = rawCol.includes('.') ? rawCol.split('.')[1] : rawCol;
       const whereVal = params[params.length - 1];
 
-      const { data, error } = await supabaseClient.from(table).update(updateObj).eq(whereCol, whereVal).select();
+      let { data, error } = await supabaseClient.from(table).update(updateObj).eq(whereCol, whereVal).select();
+      if (error && (error.message.includes('Could not find the') || error.code === 'PGRST204')) {
+        const missingColMatch = error.message.match(/Could not find the '([^']+)' column/i);
+        if (missingColMatch) {
+          const missingCol = missingColMatch[1];
+          delete updateObj[missingCol];
+          const retry = await supabaseClient.from(table).update(updateObj).eq(whereCol, whereVal).select();
+          data = retry.data;
+          error = retry.error;
+        }
+      }
       if (error) throw new Error(error.message);
       return { changes: data ? data.length : 1 };
     }
@@ -310,7 +330,8 @@ async function initDb() {
             id SERIAL PRIMARY KEY,
             title TEXT NOT NULL,
             description TEXT,
-            contribution_amount NUMERIC(12,2) NOT NULL,
+            contribution_amount NUMERIC(12,2) DEFAULT 0,
+            contribution_type TEXT DEFAULT 'fixed',
             event_date DATE NOT NULL,
             created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
           );

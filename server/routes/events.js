@@ -34,9 +34,11 @@ router.get('/', async (req, res) => {
       const total_collected = stats.collected;
       const total_pending = total_expected - total_collected;
       const total_expenses = expensesMap[e.id] || 0;
+      const contribution_type = e.contribution_type || (parseFloat(e.contribution_amount || 0) === 0 ? 'flexible' : 'fixed');
 
       return {
         ...e,
+        contribution_type,
         member_count,
         total_expected,
         total_collected,
@@ -53,29 +55,34 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Create new event and optionally impose contribution amount on all members
+// Create new event (Fixed Contribution or Flexible Drive)
 router.post('/', async (req, res) => {
   try {
-    const { title, description, contribution_amount, event_date, impose_for_all } = req.body;
-    if (!title || !contribution_amount || !event_date) {
-      return res.status(400).json({ error: 'Title, contribution amount, and event date are required' });
+    const { title, description, contribution_amount, event_date, impose_for_all, contribution_type } = req.body;
+    if (!title || !event_date) {
+      return res.status(400).json({ error: 'Title and event date are required' });
     }
 
-    const amountNum = parseFloat(contribution_amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      return res.status(400).json({ error: 'Invalid contribution amount' });
+    const type = contribution_type === 'flexible' ? 'flexible' : 'fixed';
+    let amountNum = 0;
+
+    if (type === 'fixed') {
+      amountNum = parseFloat(contribution_amount);
+      if (isNaN(amountNum) || amountNum <= 0) {
+        return res.status(400).json({ error: 'Valid contribution amount is required for fixed contribution events' });
+      }
     }
 
     // Insert Event record
     const eventResult = await db.execute(
-      `INSERT INTO events (title, description, contribution_amount, event_date) VALUES (?, ?, ?, ?)`,
-      [title, description || '', amountNum, event_date]
+      `INSERT INTO events (title, description, contribution_amount, event_date, contribution_type) VALUES (?, ?, ?, ?, ?)`,
+      [title, description || '', amountNum, event_date, type]
     );
 
     const eventId = eventResult.lastID;
 
-    // Only impose dues if impose_for_all is explicitly true (checked)
-    const shouldImpose = impose_for_all === true || impose_for_all === 'true';
+    // Only impose dues for FIXED events when impose_for_all is explicitly true
+    const shouldImpose = type === 'fixed' && (impose_for_all === true || impose_for_all === 'true');
     let imposedCount = 0;
 
     if (shouldImpose) {
@@ -93,15 +100,18 @@ router.post('/', async (req, res) => {
       imposedCount = activeMembers.length;
     }
 
-    const message = shouldImpose
-      ? `Event '${title}' created and ₹${amountNum} imposed for all ${imposedCount} active members.`
-      : `Event '${title}' created successfully. No dues imposed — you can add them manually per member.`;
+    const message = type === 'flexible'
+      ? `Flexible Contribution Event '${title}' created successfully.`
+      : (shouldImpose
+        ? `Fixed Event '${title}' created and ₹${amountNum} imposed for all ${imposedCount} active members.`
+        : `Fixed Event '${title}' created successfully (no dues automatically imposed).`);
 
     res.json({
       success: true,
       eventId,
       imposedMembersCount: imposedCount,
       contributionAmount: amountNum,
+      contributionType: type,
       message
     });
 
@@ -145,27 +155,31 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// Edit event (admin only) - updates title, date, description, and re-adjusts dues amounts
+// Edit event (admin only) - updates title, date, description, contribution type & amount
 router.put('/:id', async (req, res) => {
   try {
     const eventId = req.params.id;
-    const { title, description, contribution_amount, event_date } = req.body;
+    const { title, description, contribution_amount, event_date, contribution_type } = req.body;
 
     const event = await db.queryOne(`SELECT * FROM events WHERE id = ?`, [eventId]);
     if (!event) return res.status(404).json({ error: 'Event not found' });
 
-    const newAmount = contribution_amount ? parseFloat(contribution_amount) : event.contribution_amount;
-    if (isNaN(newAmount) || newAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid contribution amount' });
+    const type = contribution_type || event.contribution_type || 'fixed';
+    let newAmount = 0;
+    if (type === 'fixed') {
+      newAmount = contribution_amount !== undefined ? parseFloat(contribution_amount) : event.contribution_amount;
+      if (isNaN(newAmount) || newAmount <= 0) {
+        return res.status(400).json({ error: 'Invalid contribution amount for fixed event' });
+      }
     }
 
     await db.execute(
-      `UPDATE events SET title = ?, description = ?, contribution_amount = ?, event_date = ? WHERE id = ?`,
-      [title || event.title, description ?? event.description, newAmount, event_date || event.event_date, eventId]
+      `UPDATE events SET title = ?, description = ?, contribution_amount = ?, event_date = ?, contribution_type = ? WHERE id = ?`,
+      [title || event.title, description ?? event.description, newAmount, event_date || event.event_date, type, eventId]
     );
 
-    // If contribution amount changed, update pending dues (do not touch already paid amounts)
-    if (newAmount !== event.contribution_amount) {
+    // If contribution amount changed on a fixed event, update pending dues
+    if (type === 'fixed' && newAmount !== event.contribution_amount) {
       const dues = await db.queryAll(`SELECT * FROM event_dues WHERE event_id = ?`, [eventId]);
       for (const due of dues) {
         const newStatus = due.paid_amount >= newAmount ? 'completed' : (due.paid_amount > 0 ? 'partial' : 'pending');

@@ -283,6 +283,36 @@
         </div>
       </div>
 
+      <!-- ── Global Member Search Bar ─────────────────────────── -->
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; padding: 14px 16px;
+                  background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
+        <!-- Search Input -->
+        <div style="position: relative; flex: 1; min-width: 220px;">
+          <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:1rem;pointer-events:none;color:var(--text-muted);">🔍</span>
+          <input
+            type="text"
+            id="memberSearchInput"
+            class="form-control"
+            placeholder="Search by ID, Name, Mobile, Email, Aadhaar..."
+            oninput="filterMembersTable()"
+            style="padding-left: 38px; border-radius: 8px;"
+          />
+        </div>
+
+        <!-- Status Filter -->
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button id="mFilterAll"      class="btn btn-sm"             onclick="setMemberStatusFilter('all')"      style="font-size:0.8rem;">All</button>
+          <button id="mFilterActive"   class="btn btn-outline btn-sm" onclick="setMemberStatusFilter('active')"   style="font-size:0.8rem;color:#34D399;border-color:rgba(52,211,153,0.4);">✅ Active</button>
+          <button id="mFilterInactive" class="btn btn-outline btn-sm" onclick="setMemberStatusFilter('inactive')" style="font-size:0.8rem;color:#F87171;border-color:rgba(248,113,113,0.4);">❌ Inactive</button>
+        </div>
+
+        <!-- Result Count -->
+        <div id="memberSearchCount" style="font-size:0.82rem;color:var(--text-muted);flex-shrink:0;white-space:nowrap;"></div>
+
+        <!-- Clear Button -->
+        <button id="memberSearchClearBtn" onclick="clearMemberSearch()"
+                class="btn btn-outline btn-sm" style="display:none;font-size:0.8rem;" title="Clear search">✕ Clear</button>
+      </div>
 
       <div class="table-responsive">
         <table>
@@ -404,9 +434,7 @@
       <div class="passbook-summary-box" style="align-items: flex-end;">
         <div style="flex: 2;" class="form-group">
           <label>Select Member:</label>
-          <select id="passbookMemberSelect" class="form-control" onchange="loadPassbook()">
-            <option value="">-- Choose Member --</option>
-          </select>
+          <div id="passbookMemberSearchContainer"></div>
         </div>
         <div class="form-group">
           <label>From Date:</label>
@@ -636,6 +664,19 @@
               <input type="text" id="mAddress" class="form-control" placeholder="e.g. Ward 4, KPNS Region">
             </div>
 
+            <!-- Assign Initial Event Contributions (Shown for New Member Registration) -->
+            <div id="mInitialEventsGroup" class="form-group" style="grid-column: span 2; background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.2); padding: 14px; border-radius: 10px; margin-top: 4px;">
+              <label style="font-weight: 600; color: var(--text-primary); margin-bottom: 4px; display: block;">
+                🎯 Assign Initial Event Contributions (Optional)
+              </label>
+              <small style="color: var(--text-secondary); display: block; margin-bottom: 10px;">
+                Select active fixed contribution events to automatically impose as initial dues for this new member. (Flexible events are excluded).
+              </small>
+              <div id="memberInitialEventsChecklist" style="max-height: 140px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px;">
+                <!-- Populated dynamically with Fixed Contribution events only -->
+              </div>
+            </div>
+
           </div>
 
           <button type="submit" id="memberModalSubmitBtn" class="btn btn-emerald" style="width: 100%; margin-top: 10px;">Save Member Record</button>
@@ -656,23 +697,43 @@
         <form id="eventForm" onsubmit="saveEvent(event)">
           <div class="form-group">
             <label>Event Title *</label>
-            <input type="text" id="eTitle" class="form-control" required placeholder="e.g. Annual Festival 2026">
+            <input type="text" id="eTitle" class="form-control" required placeholder="e.g. Independence Day 2026 or Building Fund">
           </div>
+
           <div class="form-group">
+            <label>Contribution Type *</label>
+            <div style="display: flex; gap: 16px; margin-top: 6px; flex-wrap: wrap;">
+              <label style="display: flex; align-items: center; gap: 6px; font-weight: 500; cursor: pointer; color: var(--text-primary); font-size: 0.9rem;">
+                <input type="radio" name="eContributionType" value="fixed" checked onchange="toggleContributionTypeFields()">
+                📌 Fixed Amount (Required per member)
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; font-weight: 500; cursor: pointer; color: var(--text-primary); font-size: 0.9rem;">
+                <input type="radio" name="eContributionType" value="flexible" onchange="toggleContributionTypeFields()">
+                🌱 Flexible Amount (Voluntary / No fixed fee)
+              </label>
+            </div>
+            <small id="eContributionTypeNote" style="color: var(--text-secondary); display: block; margin-top: 4px; font-size: 0.8rem;">
+              Fixed events automatically impose a predefined contribution fee on active members.
+            </small>
+          </div>
+
+          <div class="form-group" id="eAmountGroup">
             <label>Contribution Amount (₹) Per Member *</label>
             <input type="number" step="0.01" id="eAmount" class="form-control" required placeholder="e.g. 500">
           </div>
+
           <div class="form-group">
             <label>Event Date *</label>
             <input type="date" id="eDate" class="form-control" required>
           </div>
+
           <div class="form-group">
             <label>Description</label>
-            <textarea id="eDesc" class="form-control" rows="3" placeholder="Event details..."></textarea>
+            <textarea id="eDesc" class="form-control" rows="3" placeholder="Event details or purpose..."></textarea>
           </div>
           
-          <!-- Impose for all members checkbox -->
-          <div class="form-group" style="background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.25); border-radius: 10px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px;">
+          <!-- Impose for all members checkbox (shown only for Fixed type) -->
+          <div id="eImposeGroup" class="form-group" style="background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.25); border-radius: 10px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px;">
             <input type="checkbox" id="eImposeAll" checked
               style="width:18px;height:18px;margin-top:2px;accent-color:var(--accent-primary);cursor:pointer;flex-shrink:0;"
               onchange="toggleImposeWarning(this.checked)">
@@ -762,9 +823,7 @@
 
           <div id="txMemberGroup" class="form-group">
             <label>Select Member *</label>
-            <select id="txMemberId" class="form-control">
-              <option value="">-- Select Member --</option>
-            </select>
+            <div id="txMemberSearchContainer"></div>
           </div>
 
           <div id="txOutsideGroup" class="form-group" style="display: none;">
@@ -775,13 +834,34 @@
           </div>
 
           <div id="txEventGroup" class="form-group">
-            <label>Related Events (Optional - Select Multiple)</label>
+            <label>Event Selection Mode</label>
+            <div style="display: flex; gap: 12px; margin-bottom: 8px;">
+              <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;">
+                <input type="radio" name="txEventMode" value="single" checked onchange="handleEventModeChange()"> Single Event
+              </label>
+              <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer;">
+                <input type="radio" name="txEventMode" value="multiple" onchange="handleEventModeChange()"> Multiple Related Events
+              </label>
+            </div>
+            <label id="txEventLabel">Related Event (Optional)</label>
             <div id="txEventsCheckboxList" style="max-height: 140px; overflow-y: auto; border: 1px solid var(--glass-border); padding: 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.02); display: flex; flex-direction: column; gap: 6px;">
               <!-- Populated dynamically by JS -->
             </div>
           </div>
 
-          <div class="form-group">
+          <!-- Per-event amount fields (shown only for multiple events mode) -->
+          <div id="txPerEventAmounts" class="form-group" style="display: none;">
+            <label>Amount Per Event (₹) *</label>
+            <div id="txPerEventAmountsList" style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Dynamically populated -->
+            </div>
+            <div style="margin-top: 8px; padding: 8px 12px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 600; color: var(--text-primary);">Total Amount:</span>
+              <span id="txPerEventTotal" style="font-weight: 700; font-size: 1.1rem; color: var(--accent-emerald);">₹0.00</span>
+            </div>
+          </div>
+
+          <div id="txSingleAmountGroup" class="form-group">
             <label>Amount (₹) *</label>
             <input type="number" step="0.01" id="txAmount" class="form-control" required placeholder="e.g. 1000">
           </div>
@@ -1158,6 +1238,76 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════════
+       IMPOSE EVENT CONTRIBUTION MODAL (Admin)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" id="imposeDueModal">
+    <div class="modal" style="max-width: 560px;">
+      <div class="modal-header">
+        <h3>⚡ Impose Event Contribution</h3>
+        <button class="close-btn" onclick="closeModal('imposeDueModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="imposeDueForm" onsubmit="submitImposeDue(event)">
+
+          <!-- Member Selection -->
+          <div class="form-group">
+            <label>Select Member *</label>
+            <div id="imposeDueMemberSearchContainer"></div>
+            <input type="hidden" id="imposeDueMemberId" value="">
+          </div>
+
+          <!-- Event Selection -->
+          <div class="form-group" style="margin-top: 10px;">
+            <label>Select Fixed Contribution Event *</label>
+            <div id="imposeDueEventList" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px; background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: 8px;">
+              <div style="color: var(--text-muted); font-size: 0.85rem; padding: 8px;">Loading events...</div>
+            </div>
+          </div>
+
+          <!-- Amount (auto-filled, editable) -->
+          <div class="form-group" id="imposeDueAmountGroup" style="display:none;">
+            <label>Contribution Amount (₹) *</label>
+            <input type="number" id="imposeDueAmount" class="form-control" min="1" step="0.01" placeholder="e.g. 500" required>
+            <small style="color: var(--text-muted);">Auto-filled from event. You may adjust if needed.</small>
+          </div>
+
+          <!-- Summary -->
+          <div id="imposeDueSummary" style="display:none; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.25); border-radius: 8px; padding: 12px; margin-top: 8px; font-size: 0.88rem; color: var(--text-secondary);">
+          </div>
+
+          <button type="submit" class="btn btn-emerald" style="width: 100%; margin-top: 14px;">
+            ⚡ Impose Contribution
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MEMBER OUTSTANDING DUES MODAL (Impose / Revoke view)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" id="memberDuesModal">
+    <div class="modal" style="max-width: 680px;">
+      <div class="modal-header">
+        <h3 id="memberDuesModalTitle">📋 Outstanding Contributions</h3>
+        <button class="close-btn" onclick="closeModal('memberDuesModal')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="memberDuesModalBody" style="min-height: 80px;">
+          <div style="text-align:center; color: var(--text-muted); padding: 24px;">Loading...</div>
+        </div>
+        <div style="margin-top: 14px; display: flex; gap: 8px; justify-content: flex-end;">
+          <button class="btn btn-outline btn-sm" onclick="closeModal('memberDuesModal')">Close</button>
+          <button class="btn btn-sm" id="openImposeFromDuesBtn" onclick="openImposeDueModal(currentMemberDuesId)" style="display:none;">
+            ⚡ Impose New Contribution
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/member-search-select.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

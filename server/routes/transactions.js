@@ -98,7 +98,8 @@ router.post('/', async (req, res) => {
       payment_mode, 
       notes,
       send_whatsapp,
-      created_at
+      created_at,
+      per_event_amounts // { eventId: amount } — from multiple events mode
     } = req.body;
 
     const parsedAmount = parseFloat(amount);
@@ -140,24 +141,41 @@ router.post('/', async (req, res) => {
           );
         }
       } else if (event_id && member_id) {
-        // Handle multiple event IDs sequentially
         const eventIds = String(event_id).split(',').map(id => id.trim()).filter(Boolean);
-        let remainingPayment = parsedAmount;
-        
-        for (const evId of eventIds) {
-          if (remainingPayment <= 0) break;
-          const targetDue = await db.queryOne('SELECT * FROM event_dues WHERE event_id = ? AND member_id = ?', [evId, member_id]);
-          if (targetDue) {
-            const dueRemaining = targetDue.amount - targetDue.paid_amount;
-            if (dueRemaining > 0) {
-              const paymentToApply = Math.min(remainingPayment, dueRemaining);
-              const newPaidAmount = targetDue.paid_amount + paymentToApply;
+
+        if (per_event_amounts && typeof per_event_amounts === 'object') {
+          // Per-event amounts mode — apply exact amount to each event's dues
+          for (const evId of eventIds) {
+            const evAmount = parseFloat(per_event_amounts[evId]);
+            if (isNaN(evAmount) || evAmount <= 0) continue;
+            const targetDue = await db.queryOne('SELECT * FROM event_dues WHERE event_id = ? AND member_id = ?', [evId, member_id]);
+            if (targetDue) {
+              const newPaidAmount = targetDue.paid_amount + evAmount;
               const newStatus = newPaidAmount >= targetDue.amount ? 'completed' : 'partial';
               await db.execute(
                 `UPDATE event_dues SET paid_amount = ?, status = ? WHERE id = ?`,
                 [newPaidAmount, newStatus, targetDue.id]
               );
-              remainingPayment -= paymentToApply;
+            }
+          }
+        } else {
+          // Legacy lump-sum mode — distribute payment across events sequentially
+          let remainingPayment = parsedAmount;
+          for (const evId of eventIds) {
+            if (remainingPayment <= 0) break;
+            const targetDue = await db.queryOne('SELECT * FROM event_dues WHERE event_id = ? AND member_id = ?', [evId, member_id]);
+            if (targetDue) {
+              const dueRemaining = targetDue.amount - targetDue.paid_amount;
+              if (dueRemaining > 0) {
+                const paymentToApply = Math.min(remainingPayment, dueRemaining);
+                const newPaidAmount = targetDue.paid_amount + paymentToApply;
+                const newStatus = newPaidAmount >= targetDue.amount ? 'completed' : 'partial';
+                await db.execute(
+                  `UPDATE event_dues SET paid_amount = ?, status = ? WHERE id = ?`,
+                  [newPaidAmount, newStatus, targetDue.id]
+                );
+                remainingPayment -= paymentToApply;
+              }
             }
           }
         }

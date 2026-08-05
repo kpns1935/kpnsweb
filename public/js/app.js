@@ -585,56 +585,218 @@ async function loadMembersData() {
     const res = await fetch('/api/members');
     membersList = await res.json();
 
-    const tbody = document.getElementById('membersTableBody');
-    tbody.innerHTML = membersList.map(m => `
-      <tr>
-        <td><strong class="text-gold">${m.form_no || '-'}</strong></td>
-        <td><strong>${m.member_code}</strong></td>
-        <td><strong>${m.name}</strong></td>
-        <td>${m.father_name || '-'}</td>
-        <td>${formatDate(m.date_of_admission)}</td>
-        <td>${cleanNumber(m.phone)}</td>
-        <td>${cleanNumber(m.aadhaar_number)}</td>
-        <td><span class="badge badge-partial">${m.blood_group || 'O+'}</span></td>
-        <td>${cleanNumber(m.alternative_number)}</td>
-        <td>${formatDate(m.dob)}</td>
-        <td>
-          <span class="badge ${m.member_status === 'Active' ? 'badge-completed' : 'badge-pending'}" 
-                style="${isManagementRole(currentUser) ? 'cursor: pointer;' : 'cursor: default;'}" 
-                onclick="toggleMemberStatus(${m.id}, '${m.member_status || 'Active'}')" 
-                title="${isManagementRole(currentUser) ? 'Click to toggle status' : 'Status'}">
-            ${(m.member_status || 'Active').toUpperCase()}
-          </span>
-        </td>
-        <td class="${m.current_due_balance > 0 ? 'text-rose' : 'text-emerald'}"><strong>${formatINR(m.current_due_balance)}</strong></td>
-        <td>
-          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-            <button class="btn btn-outline btn-sm" onclick="openPassbookForMember(${m.id})">📖 Passbook</button>
-            ${isManagementRole(currentUser) ? `
-              <button class="btn btn-outline btn-sm" onclick="editMember(${m.id})">✏️ Edit</button>
-            ` : ''}
-          </div>
-        </td>
-      </tr>
-    `).join('') || '<tr><td colspan="13" style="text-align: center;">No members found. Click "Seed Sample 50 Members" to add initial members.</td></tr>';
-
-    // Populate dropdowns
+    // Populate dropdowns and filter/render table
     populateMemberDropdowns();
+    filterMembersTable();
   } catch (err) {
     console.error('Members load error:', err);
   }
 }
 
-function populateMemberDropdowns() {
-  const selects = ['txMemberId', 'passbookMemberSelect'];
-  selects.forEach(id => {
-    const sel = document.getElementById(id);
-    if (!sel) return;
-    const currentVal = sel.value;
-    sel.innerHTML = `<option value="">-- Choose Member --</option>` +
-      membersList.map(m => `<option value="${m.id}">${m.member_code} - ${m.name} (S/O ${m.father_name || 'N/A'}) [${m.phone}]</option>`).join('');
-    sel.value = currentVal;
+// ── MEMBER TABLE SEARCH & FILTER ─────────────────────────────────────────────
+let memberStatusFilter = 'all';
+
+function setMemberStatusFilter(status) {
+  memberStatusFilter = status;
+
+  // Update button active states
+  ['all', 'active', 'inactive'].forEach(s => {
+    const btn = document.getElementById('mFilter' + s.charAt(0).toUpperCase() + s.slice(1));
+    if (!btn) return;
+    if (s === status) {
+      btn.classList.remove('btn-outline');
+      btn.classList.add('btn-sm');
+    } else {
+      btn.classList.add('btn-outline');
+    }
   });
+
+  filterMembersTable();
+}
+
+function filterMembersTable() {
+  const rawQuery = (document.getElementById('memberSearchInput')?.value || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('memberSearchClearBtn');
+  const countEl  = document.getElementById('memberSearchCount');
+
+  if (clearBtn) clearBtn.style.display = rawQuery ? 'inline-flex' : 'none';
+
+  // Filter members list
+  let filtered = membersList.filter(m => {
+    // Status filter
+    const status = (m.member_status || 'Active').toLowerCase();
+    if (memberStatusFilter === 'active'   && status !== 'active')   return false;
+    if (memberStatusFilter === 'inactive' && status !== 'inactive') return false;
+
+    // Text search
+    if (!rawQuery) return true;
+    return (
+      (m.member_code         || '').toLowerCase().includes(rawQuery) ||
+      (m.name                || '').toLowerCase().includes(rawQuery) ||
+      (m.father_name         || '').toLowerCase().includes(rawQuery) ||
+      (m.phone               || '').toLowerCase().includes(rawQuery) ||
+      (m.alternative_number  || '').toLowerCase().includes(rawQuery) ||
+      (m.email               || '').toLowerCase().includes(rawQuery) ||
+      (m.aadhaar_number      || '').toLowerCase().includes(rawQuery) ||
+      (m.address             || '').toLowerCase().includes(rawQuery) ||
+      (m.form_no             || '').toLowerCase().includes(rawQuery)
+    );
+  });
+
+  // Update count display
+  if (countEl) {
+    if (rawQuery || memberStatusFilter !== 'all') {
+      countEl.textContent = `${filtered.length} of ${membersList.length} members`;
+    } else {
+      countEl.textContent = `${membersList.length} members`;
+    }
+  }
+
+  // Re-render tbody with filtered results
+  const tbody = document.getElementById('membersTableBody');
+  if (!tbody) return;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="13" style="text-align:center;padding:32px;color:var(--text-muted);">
+          <div style="font-size:1.5rem;margin-bottom:8px;">🔍</div>
+          <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">No members found.</div>
+          <div style="font-size:0.85rem;">Try a different search term or clear the filter.</div>
+        </td>
+      </tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(m => `
+    <tr>
+      <td><strong class="text-gold">${highlight(m.form_no || '-', rawQuery)}</strong></td>
+      <td><strong>${highlight(m.member_code, rawQuery)}</strong></td>
+      <td><strong>${highlight(m.name, rawQuery)}</strong></td>
+      <td>${highlight(m.father_name || '-', rawQuery)}</td>
+      <td>${formatDate(m.date_of_admission)}</td>
+      <td>${highlight(cleanNumber(m.phone), rawQuery)}</td>
+      <td>${highlight(cleanNumber(m.aadhaar_number), rawQuery)}</td>
+      <td><span class="badge badge-partial">${m.blood_group || 'O+'}</span></td>
+      <td>${highlight(cleanNumber(m.alternative_number), rawQuery)}</td>
+      <td>${formatDate(m.dob)}</td>
+      <td>
+        <span class="badge ${m.member_status === 'Active' ? 'badge-completed' : 'badge-pending'}"
+              style="${isManagementRole(currentUser) ? 'cursor: pointer;' : 'cursor: default;'}"
+              onclick="toggleMemberStatus(${m.id}, '${m.member_status || 'Active'}')"
+              title="${isManagementRole(currentUser) ? 'Click to toggle status' : 'Status'}">
+          ${(m.member_status || 'Active').toUpperCase()}
+        </span>
+      </td>
+      <td class="${m.current_due_balance > 0 ? 'text-rose' : 'text-emerald'}"><strong>${formatINR(m.current_due_balance)}</strong></td>
+      <td>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="btn btn-outline btn-sm" onclick="openPassbookForMember(${m.id})">📖 Passbook</button>
+          ${isManagementRole(currentUser) ? `
+            <button class="btn btn-outline btn-sm" style="color:#60A5FA;border-color:rgba(96,165,250,0.4);" onclick="openMemberDuesModal(${m.id})">📋 Dues</button>
+            <button class="btn btn-outline btn-sm" style="color:#34D399;border-color:rgba(52,211,153,0.4);" onclick="openImposeDueModal(${m.id})">⚡ Impose</button>
+            <button class="btn btn-outline btn-sm" onclick="editMember(${m.id})">✏️ Edit</button>
+            <button class="btn btn-rose btn-sm" onclick="deleteMember(${m.id})">🗑️ Delete</button>
+          ` : ''}
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function highlight(text, query) {
+  if (!text || !query) return text || '';
+  const str = String(text);
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return str.replace(new RegExp(`(${escaped})`, 'gi'),
+    '<mark style="background:rgba(234,179,8,0.28);color:#FACC15;border-radius:2px;padding:0 1px;">$1</mark>');
+}
+
+function clearMemberSearch() {
+  const input = document.getElementById('memberSearchInput');
+  if (input) input.value = '';
+  setMemberStatusFilter('all');
+  filterMembersTable();
+}
+
+// Global MemberSearchSelect instances
+let txMemberSearchInstance = null;
+let passbookSearchInstance = null;
+
+function populateMemberDropdowns() {
+  // Initialize Transaction Member Search Select
+  if (!txMemberSearchInstance) {
+    const txContainer = document.getElementById('txMemberSearchContainer');
+    if (txContainer) {
+      txMemberSearchInstance = new MemberSearchSelect({
+        container: 'txMemberSearchContainer',
+        id: 'txMemberSearch',
+        hiddenInputId: 'txMemberId',
+        placeholder: '🔍 Search Member by ID, Name, Mobile or Email...',
+        onSelect: function(member) {
+          // Auto-load dues for selected member when type is member_payment
+          const txType = document.getElementById('txType');
+          if (txType && txType.value === 'member_payment') {
+            // Hidden input is already set; dues will be fetched on form submit
+          }
+        },
+        onClear: function() {
+          // Clear dues selection when member is cleared
+        }
+      });
+      // Add hidden input for backward compat
+      if (!document.getElementById('txMemberId')) {
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.id = 'txMemberId';
+        hidden.value = '';
+        txContainer.appendChild(hidden);
+      }
+    }
+  }
+
+  // Initialize Passbook Member Search Select
+  if (!passbookSearchInstance) {
+    const pbContainer = document.getElementById('passbookMemberSearchContainer');
+    if (pbContainer) {
+      passbookSearchInstance = new MemberSearchSelect({
+        container: 'passbookMemberSearchContainer',
+        id: 'passbookSearch',
+        hiddenInputId: 'passbookMemberSelect',
+        placeholder: '🔍 Search Member by ID, Name, Mobile or Email...',
+        onSelect: function(member) {
+          loadPassbook();
+        },
+        onClear: function() {
+          // Clear passbook view
+          document.getElementById('passbookMemberName').textContent = 'Select a Member';
+          document.getElementById('passbookMemberCode').textContent = 'Code: - | Phone: -';
+        }
+      });
+      // Add hidden input for backward compat
+      if (!document.getElementById('passbookMemberSelect')) {
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.id = 'passbookMemberSelect';
+        hidden.value = '';
+        pbContainer.appendChild(hidden);
+      }
+    }
+  }
+}
+
+
+function populateInitialEventsChecklist() {
+  const checklist = document.getElementById('memberInitialEventsChecklist');
+  if (!checklist) return;
+  // Filter only Active Fixed Contribution events with predefined amounts
+  const fixedEvents = eventsList.filter(e => e.contribution_type !== 'flexible' && Number(e.contribution_amount) > 0);
+  checklist.innerHTML = fixedEvents.map(e => `
+    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: var(--text-primary); font-size: 0.88rem; padding: 4px 8px; border-radius: 4px; background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border);">
+      <input type="checkbox" name="mInitialEventIds" value="${e.id}" style="width: auto; margin: 0;">
+      <span>${e.title} (<strong>₹${Number(e.contribution_amount).toFixed(2)}</strong>)</span>
+    </label>
+  `).join('') || '<div style="color: var(--text-muted); font-size: 0.85rem;">No active fixed contribution events available.</div>';
 }
 
 async function saveMember(e) {
@@ -653,6 +815,12 @@ async function saveMember(e) {
   const member_status = document.getElementById('mStatus').value;
   const address = document.getElementById('mAddress').value;
 
+  let initial_event_ids = [];
+  if (!editingMemberId) {
+    const cbs = document.querySelectorAll('input[name="mInitialEventIds"]:checked');
+    initial_event_ids = Array.from(cbs).map(cb => cb.value);
+  }
+
   const url = editingMemberId ? `/api/members/${editingMemberId}` : '/api/members';
   const method = editingMemberId ? 'PUT' : 'POST';
 
@@ -662,7 +830,7 @@ async function saveMember(e) {
     body: JSON.stringify({
       form_no, member_code, name, father_name, date_of_admission,
       phone, email, aadhaar_number, blood_group, alternative_number,
-      dob, member_status, address
+      dob, member_status, address, initial_event_ids
     })
   });
 
@@ -676,6 +844,7 @@ async function saveMember(e) {
     closeModal('memberModal');
     document.getElementById('memberForm').reset();
     loadMembersData();
+    loadDashboardData();
   } else {
     showToast(data.error || 'Failed to save member', 'error');
   }
@@ -688,6 +857,10 @@ function showAddMemberModal() {
   const today = new Date().toISOString().slice(0, 10);
   document.getElementById('mDateOfAdmission').value = today;
   
+  const initialGroup = document.getElementById('mInitialEventsGroup');
+  if (initialGroup) initialGroup.style.display = 'block';
+  populateInitialEventsChecklist();
+
   const titleEl = document.getElementById('memberModalTitle');
   const submitBtnEl = document.getElementById('memberModalSubmitBtn');
   if (titleEl) titleEl.innerText = "Add New Member Registration";
@@ -719,12 +892,41 @@ function editMember(id) {
   document.getElementById('mStatus').value = member.member_status || 'Active';
   document.getElementById('mAddress').value = member.address || '';
   
+  const initialGroup = document.getElementById('mInitialEventsGroup');
+  if (initialGroup) initialGroup.style.display = 'none';
+
   const titleEl = document.getElementById('memberModalTitle');
   const submitBtnEl = document.getElementById('memberModalSubmitBtn');
   if (titleEl) titleEl.innerText = "Edit Member Record";
   if (submitBtnEl) submitBtnEl.innerText = "Update Member Record";
   
   openModal('memberModal');
+}
+
+async function deleteMember(id) {
+  const member = membersList.find(m => m.id == id);
+  if (!member) return;
+
+  const confirmMsg = 
+    `Delete Member: ${member.name} (${member.member_code})?\n\n` +
+    `This action will permanently delete the member profile.\n\n` +
+    `• All unpaid dues will be removed automatically.\n` +
+    `• Payment history and issued receipts will be retained for audit purposes.\n` +
+    `• This action cannot be undone.\n\n` +
+    `Are you sure you want to delete this member?`;
+
+  if (!confirm(confirmMsg)) return;
+
+  const res = await fetch(`/api/members/${id}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.success) {
+    showToast(data.message || 'Member deleted successfully.', 'success');
+    loadMembersData();
+    loadDashboardData();
+    loadEventsData();
+  } else {
+    showToast(data.error || 'Failed to delete member', 'error');
+  }
 }
 
 
@@ -748,7 +950,12 @@ async function loadEventsData() {
       <tr>
         <td><strong>${e.title}</strong></td>
         <td>${formatDate(e.event_date)}</td>
-        <td class="text-gold"><strong>${formatINR(e.contribution_amount)}</strong></td>
+        <td>
+          ${(e.contribution_type === 'flexible' || !Number(e.contribution_amount))
+            ? '<span class="badge" style="background: rgba(37,99,235,0.15); color: #60A5FA; padding: 4px 8px; border-radius: 6px; font-weight: 500;">🌱 Flexible Drive</span>'
+            : `<strong class="text-gold">${formatINR(e.contribution_amount)}</strong>`
+          }
+        </td>
         <td>${e.member_count} Members</td>
         <td>${formatINR(e.total_expected)}</td>
         <td class="text-emerald">${formatINR(e.total_collected)}</td>
@@ -778,7 +985,7 @@ function populateEventDropdowns() {
   if (checklist) {
     checklist.innerHTML = eventsList.map(e => `
       <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: var(--text-primary); padding: 4px; border-radius: 4px; transition: background 0.2s;">
-        <input type="checkbox" name="txEventIds" value="${e.id}" style="width: auto; margin: 0;">
+        <input type="checkbox" name="txEventIds" value="${e.id}" data-title="${e.title}" data-amount="${e.contribution_amount || 0}" onchange="onTxEventCheckboxChange()" style="width: auto; margin: 0;">
         <span>${e.title} (${formatDate(e.event_date)})</span>
       </label>
     `).join('') || '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 4px;">No events available.</div>';
@@ -796,10 +1003,43 @@ function populateEventDropdowns() {
   });
 }
 
+function toggleContributionTypeFields() {
+  const type = document.querySelector('input[name="eContributionType"]:checked')?.value || 'fixed';
+  const amountGroup = document.getElementById('eAmountGroup');
+  const imposeGroup = document.getElementById('eImposeGroup');
+  const amountInput = document.getElementById('eAmount');
+  const typeNote = document.getElementById('eContributionTypeNote');
+  const submitBtn = document.getElementById('eSubmitBtn');
+
+  if (type === 'flexible') {
+    if (amountGroup) amountGroup.style.display = 'none';
+    if (imposeGroup) imposeGroup.style.display = 'none';
+    if (amountInput) { amountInput.required = false; amountInput.value = ''; }
+    if (typeNote) {
+      typeNote.textContent = '🌱 Flexible Drive (e.g. Building Fund, Donation Drive). No fixed contribution amount is imposed on members.';
+    }
+    if (submitBtn && !editingEventId) {
+      submitBtn.textContent = 'Create Event (Flexible Drive)';
+    }
+  } else {
+    if (amountGroup) amountGroup.style.display = 'block';
+    if (imposeGroup) imposeGroup.style.display = 'flex';
+    if (amountInput) amountInput.required = true;
+    if (typeNote) {
+      typeNote.textContent = '📌 Fixed events automatically impose a predefined contribution fee on active members.';
+    }
+    const isImposeChecked = document.getElementById('eImposeAll')?.checked;
+    if (submitBtn && !editingEventId) {
+      submitBtn.textContent = isImposeChecked ? 'Create Event & Impose Dues' : 'Create Event (No Dues)';
+    }
+  }
+}
+
 async function saveEvent(e) {
   e.preventDefault();
   const title = document.getElementById('eTitle').value;
-  const contribution_amount = document.getElementById('eAmount').value;
+  const contribution_type = document.querySelector('input[name="eContributionType"]:checked')?.value || 'fixed';
+  const contribution_amount = contribution_type === 'flexible' ? 0 : document.getElementById('eAmount').value;
   const event_date = document.getElementById('eDate').value;
   const description = document.getElementById('eDesc').value;
   const impose_for_all = document.getElementById('eImposeAll') ? document.getElementById('eImposeAll').checked : true;
@@ -810,25 +1050,28 @@ async function saveEvent(e) {
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, contribution_amount, event_date, description, impose_for_all })
+    body: JSON.stringify({ title, contribution_type, contribution_amount, event_date, description, impose_for_all })
   });
   const data = await res.json();
   if (data.success) {
     showToast(data.message || 'Event saved successfully.', 'success');
     closeModal('eventModal');
     document.getElementById('eventForm').reset();
-    // Reset checkbox and submit button label
+
+    // Reset default form state
+    const fixedRadio = document.querySelector('input[name="eContributionType"][value="fixed"]');
+    if (fixedRadio) fixedRadio.checked = true;
     const cb = document.getElementById('eImposeAll');
     if (cb) { cb.checked = true; toggleImposeWarning(true); }
+    toggleContributionTypeFields();
+
     editingEventId = null;
     document.querySelector('#eventModal .modal-header h3').innerText = 'Create Event & Impose Contribution';
-    const submitBtn = document.getElementById('eSubmitBtn');
-    if (submitBtn) submitBtn.innerText = 'Create Event & Impose Dues';
     loadEventsData();
     loadMembersData();
     loadDashboardData();
   } else {
-    showToast(data.error || 'Failed to create event', 'error');
+    showToast(data.error || 'Failed to save event', 'error');
   }
 }
 
@@ -836,6 +1079,7 @@ async function saveEvent(e) {
 function toggleImposeWarning(checked) {
   const note = document.getElementById('eImposeNote');
   const submitBtn = document.getElementById('eSubmitBtn');
+  const type = document.querySelector('input[name="eContributionType"]:checked')?.value || 'fixed';
   if (note) {
     if (checked) {
       note.style.color = 'var(--accent-warning)';
@@ -845,7 +1089,7 @@ function toggleImposeWarning(checked) {
       note.textContent = 'ℹ️ No dues will be imposed. You can manually add dues later per member.';
     }
   }
-  if (submitBtn && !editingEventId) {
+  if (submitBtn && !editingEventId && type === 'fixed') {
     submitBtn.textContent = checked ? 'Create Event & Impose Dues' : 'Create Event (No Dues)';
   }
 }
@@ -892,11 +1136,20 @@ function editEvent(id) {
   if (!ev) return;
   editingEventId = id;
   document.getElementById('eTitle').value = ev.title || '';
+
+  const isFlexible = ev.contribution_type === 'flexible' || Number(ev.contribution_amount) === 0;
+  const targetType = isFlexible ? 'flexible' : 'fixed';
+  const radio = document.querySelector(`input[name="eContributionType"][value="${targetType}"]`);
+  if (radio) radio.checked = true;
+
   document.getElementById('eAmount').value = ev.contribution_amount || '';
   document.getElementById('eDate').value = ev.event_date ? ev.event_date.slice(0, 10) : '';
   document.getElementById('eDesc').value = ev.description || '';
+
+  toggleContributionTypeFields();
+
   document.querySelector('#eventModal .modal-header h3').innerText = 'Edit Event';
-  document.querySelector('#eventForm button[type="submit"]').innerText = 'Update Event & Adjust Dues';
+  document.querySelector('#eventForm button[type="submit"]').innerText = 'Update Event';
   openModal('eventModal');
 }
 
@@ -913,6 +1166,266 @@ async function deleteEvent(id) {
     loadDashboardData();
   } else {
     showToast(data.error || 'Failed to delete event', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPOSE & REVOKE EVENT CONTRIBUTIONS (Admin)
+// ═══════════════════════════════════════════════════════════
+
+let imposeDueMemberSearchInstance = null;
+let currentMemberDuesId = null;
+
+// Open Impose Due modal, optionally pre-selecting a member
+function openImposeDueModal(memberId = null) {
+  closeModal('memberDuesModal');
+
+  // Initialise member search inside modal (once)
+  const container = document.getElementById('imposeDueMemberSearchContainer');
+  if (container) {
+    if (!imposeDueMemberSearchInstance) {
+      imposeDueMemberSearchInstance = new MemberSearchSelect({
+        container: 'imposeDueMemberSearchContainer',
+        id: 'imposeDueMemberSearch',
+        hiddenInputId: 'imposeDueMemberId',
+        placeholder: '🔍 Search Member by ID, Name, Mobile or Email...',
+        onSelect: () => updateImposeDueSummary(),
+        onClear: () => {
+          document.getElementById('imposeDueAmountGroup').style.display = 'none';
+          document.getElementById('imposeDueSummary').style.display = 'none';
+        }
+      });
+    } else {
+      imposeDueMemberSearchInstance.clearSelection();
+    }
+  }
+
+  // Populate fixed-event checklist
+  const eventList = document.getElementById('imposeDueEventList');
+  if (eventList) {
+    const fixedEvents = eventsList.filter(e => (e.contribution_type || 'fixed') !== 'flexible' && Number(e.contribution_amount) > 0);
+    if (fixedEvents.length === 0) {
+      eventList.innerHTML = '<div style="color:var(--text-muted);font-size:0.85rem;padding:8px;">No fixed contribution events found.</div>';
+    } else {
+      eventList.innerHTML = fixedEvents.map(e => `
+        <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;
+                      border:1px solid var(--glass-border);background:rgba(255,255,255,0.02);
+                      transition:background 0.15s;" 
+               onmouseover="this.style.background='rgba(99,102,241,0.1)'" 
+               onmouseout="this.style.background='rgba(255,255,255,0.02)'"
+               onclick="selectImposeDueEvent(${e.id}, ${e.contribution_amount})">
+          <input type="radio" name="imposeDueEventId" value="${e.id}" 
+                 data-amount="${e.contribution_amount}"
+                 style="width:auto;margin:0;accent-color:var(--accent-primary);"
+                 onchange="selectImposeDueEvent(${e.id}, ${e.contribution_amount})">
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;color:var(--text-primary);font-size:0.88rem;">${e.title}</div>
+            <div style="font-size:0.76rem;color:var(--text-secondary);">📅 ${formatDate(e.event_date)} &nbsp;·&nbsp; <strong class="text-gold">₹${Number(e.contribution_amount).toFixed(2)}</strong> per member</div>
+          </div>
+        </label>
+      `).join('');
+    }
+  }
+
+  // Reset amount and summary
+  document.getElementById('imposeDueAmountGroup').style.display = 'none';
+  document.getElementById('imposeDueSummary').style.display = 'none';
+  const amountEl = document.getElementById('imposeDueAmount');
+  if (amountEl) amountEl.value = '';
+  // Deselect any event radio
+  document.querySelectorAll('input[name="imposeDueEventId"]').forEach(r => r.checked = false);
+
+  // Pre-select member if ID provided
+  if (memberId && imposeDueMemberSearchInstance) {
+    imposeDueMemberSearchInstance.setValue(memberId);
+  }
+
+  openModal('imposeDueModal');
+}
+
+function selectImposeDueEvent(eventId, amount) {
+  const amountGroup = document.getElementById('imposeDueAmountGroup');
+  const amountInput = document.getElementById('imposeDueAmount');
+  if (amountGroup) amountGroup.style.display = 'block';
+  if (amountInput) amountInput.value = Number(amount).toFixed(2);
+  updateImposeDueSummary();
+}
+
+function updateImposeDueSummary() {
+  const memberId = document.getElementById('imposeDueMemberId')?.value;
+  const selectedEvent = document.querySelector('input[name="imposeDueEventId"]:checked');
+  const amount = document.getElementById('imposeDueAmount')?.value;
+  const summaryEl = document.getElementById('imposeDueSummary');
+
+  if (!summaryEl) return;
+
+  if (memberId && selectedEvent && amount) {
+    const member = membersList.find(m => m.id == memberId);
+    const event = eventsList.find(e => e.id == parseInt(selectedEvent.value));
+    if (member && event) {
+      summaryEl.style.display = 'block';
+      summaryEl.innerHTML = `
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div>👤 <strong>${member.name}</strong> (${member.member_code})</div>
+          <div>🎯 <strong>${event.title}</strong></div>
+          <div>💰 Amount to Impose: <strong class="text-gold">₹${Number(amount).toFixed(2)}</strong></div>
+        </div>
+      `;
+      return;
+    }
+  }
+  summaryEl.style.display = 'none';
+}
+
+async function submitImposeDue(e) {
+  e.preventDefault();
+  const memberId = document.getElementById('imposeDueMemberId')?.value;
+  const selectedEvent = document.querySelector('input[name="imposeDueEventId"]:checked');
+  const amount = document.getElementById('imposeDueAmount')?.value;
+
+  if (!memberId) { showToast('Please select a member.', 'error'); return; }
+  if (!selectedEvent) { showToast('Please select an event.', 'error'); return; }
+  if (!amount || parseFloat(amount) <= 0) { showToast('Please enter a valid contribution amount.', 'error'); return; }
+
+  const res = await fetch(`/api/members/${memberId}/impose-due`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event_id: selectedEvent.value, amount: parseFloat(amount) })
+  });
+  const data = await res.json();
+
+  if (data.success) {
+    showToast(data.message, 'success');
+    closeModal('imposeDueModal');
+    loadMembersData();
+    loadEventsData();
+    loadDashboardData();
+    // If passbook is open for this member, refresh it
+    const pbHidden = document.getElementById('passbookMemberSelect');
+    if (pbHidden && pbHidden.value == memberId) loadPassbook();
+  } else {
+    showToast(data.error || 'Failed to impose contribution', 'error');
+  }
+}
+
+// ── MEMBER OUTSTANDING DUES MODAL ────────────────────────────────────────────
+async function openMemberDuesModal(memberId) {
+  currentMemberDuesId = memberId;
+  const member = membersList.find(m => m.id == memberId);
+  const titleEl = document.getElementById('memberDuesModalTitle');
+  const bodyEl = document.getElementById('memberDuesModalBody');
+  const imposeBtn = document.getElementById('openImposeFromDuesBtn');
+
+  if (titleEl && member) {
+    titleEl.textContent = `📋 Event Contributions — ${member.name} (${member.member_code})`;
+  }
+  if (bodyEl) bodyEl.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">Loading...</div>';
+  if (imposeBtn) {
+    imposeBtn.style.display = isManagementRole(currentUser) ? 'inline-flex' : 'none';
+  }
+
+  openModal('memberDuesModal');
+
+  try {
+    const res = await fetch(`/api/members/${memberId}/passbook`);
+    const data = await res.json();
+
+    // Pull all dues entries from passbook + deduplicate by event
+    const duesRes = await fetch(`/api/events`);
+    const allEvents = await duesRes.json();
+
+    // Fetch dues directly for this member
+    const duesListRes = await fetch(`/api/members/${memberId}/dues`);
+    let duesList = [];
+    if (duesListRes.ok) {
+      duesList = await duesListRes.json();
+    }
+
+    if (!duesList.length) {
+      bodyEl.innerHTML = `
+        <div style="text-align:center;color:var(--text-muted);padding:32px 0;">
+          <div style="font-size:2rem;margin-bottom:8px;">✅</div>
+          <div style="font-weight:600;color:var(--text-primary);">No outstanding event contributions.</div>
+          <div style="font-size:0.85rem;margin-top:4px;">This member has no imposed dues.</div>
+        </div>
+      `;
+      return;
+    }
+
+    bodyEl.innerHTML = `
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Event</th>
+              <th>Imposed</th>
+              <th>Paid</th>
+              <th>Pending</th>
+              <th>Status</th>
+              ${isManagementRole(currentUser) ? '<th>Action</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${duesList.map(d => {
+              const amount = parseFloat(d.amount) || 0;
+              const paid = parseFloat(d.paid_amount) || 0;
+              const pending = Math.max(0, amount - paid);
+              const isRevokable = paid === 0 && d.status !== 'completed';
+              const statusBg = d.status === 'completed' 
+                ? 'background:rgba(16,185,129,0.15);color:#34D399;' 
+                : (paid > 0 ? 'background:rgba(245,158,11,0.15);color:#f59e0b;' : 'background:rgba(239,68,68,0.15);color:#ef4444;');
+              const statusText = d.status === 'completed' ? 'PAID' : (paid > 0 ? 'PARTIAL' : 'PENDING');
+              return `
+                <tr>
+                  <td><strong>${d.event_title || 'Unknown Event'}</strong><br><small style="color:var(--text-muted)">${formatDate(d.event_date)}</small></td>
+                  <td>${formatINR(amount)}</td>
+                  <td class="text-emerald">${formatINR(paid)}</td>
+                  <td class="text-rose"><strong>${formatINR(pending)}</strong></td>
+                  <td><span style="font-size:0.72rem;padding:3px 8px;border-radius:20px;font-weight:600;${statusBg}">${statusText}</span></td>
+                  ${isManagementRole(currentUser) ? `
+                    <td>
+                      ${isRevokable ? `
+                        <button class="btn btn-rose btn-sm" style="font-size:0.75rem;padding:4px 10px;" onclick="confirmRevokeDue(${d.id}, '${(d.event_title||'').replace(/'/g,"\\'")}', ${memberId})">
+                          🗑️ Revoke
+                        </button>
+                      ` : `<span style="color:var(--text-muted);font-size:0.78rem;">—</span>`}
+                    </td>
+                  ` : ''}
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    if (bodyEl) bodyEl.innerHTML = `<div style="color:var(--accent-danger);padding:16px;">Failed to load dues: ${err.message}</div>`;
+  }
+}
+
+function confirmRevokeDue(dueId, eventTitle, memberId) {
+  const confirmed = confirm(
+    `Revoke Event Contribution?\n\nEvent: "${eventTitle}"\n\n` +
+    `• Only unpaid dues can be revoked.\n` +
+    `• Paid contributions cannot be revoked.\n` +
+    `• This action cannot be undone.\n\nProceed with revocation?`
+  );
+  if (!confirmed) return;
+  revokeDue(dueId, memberId);
+}
+
+async function revokeDue(dueId, memberId) {
+  const res = await fetch(`/api/members/revoke-due/${dueId}`, { method: 'DELETE' });
+  const data = await res.json();
+  if (data.success) {
+    showToast(data.message, 'success');
+    // Refresh the dues modal
+    openMemberDuesModal(memberId);
+    loadMembersData();
+    loadDashboardData();
+    loadEventsData();
+  } else {
+    showToast(data.error || 'Failed to revoke contribution', 'error');
   }
 }
 
@@ -983,20 +1496,134 @@ function toggleTxTypeFields() {
   }
 }
 
+// Handle event selection mode toggle (Single / Multiple)
+function handleEventModeChange() {
+  const mode = document.querySelector('input[name="txEventMode"]:checked')?.value || 'single';
+  const label = document.getElementById('txEventLabel');
+  const checkboxes = document.querySelectorAll('input[name="txEventIds"]');
+
+  if (mode === 'single') {
+    if (label) label.textContent = 'Related Event (Optional)';
+    // Uncheck all except last checked
+    checkboxes.forEach(cb => { cb.checked = false; });
+    document.getElementById('txPerEventAmounts').style.display = 'none';
+    document.getElementById('txSingleAmountGroup').style.display = 'block';
+    document.getElementById('txAmount').required = true;
+    document.getElementById('txPerEventAmountsList').innerHTML = '';
+  } else {
+    if (label) label.textContent = 'Select Events *';
+    document.getElementById('txSingleAmountGroup').style.display = 'none';
+    document.getElementById('txAmount').required = false;
+    onTxEventCheckboxChange();
+  }
+}
+
+// Enforce single-select when in single mode; build per-event amounts in multiple mode
+function onTxEventCheckboxChange() {
+  const mode = document.querySelector('input[name="txEventMode"]:checked')?.value || 'single';
+
+  if (mode === 'single') {
+    // Allow only one checkbox to be selected at a time
+    const checkboxes = document.querySelectorAll('input[name="txEventIds"]');
+    const justChecked = event.target;
+    if (justChecked && justChecked.checked) {
+      checkboxes.forEach(cb => {
+        if (cb !== justChecked) cb.checked = false;
+      });
+    }
+    return;
+  }
+
+  // Multiple mode — build per-event amount fields
+  const selectedCbs = document.querySelectorAll('input[name="txEventIds"]:checked');
+  const container = document.getElementById('txPerEventAmountsList');
+  const perEventSection = document.getElementById('txPerEventAmounts');
+
+  if (selectedCbs.length === 0) {
+    perEventSection.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  perEventSection.style.display = 'block';
+
+  container.innerHTML = Array.from(selectedCbs).map(cb => {
+    const eventId = cb.value;
+    const title = cb.dataset.title || 'Event';
+    const suggestedAmt = cb.dataset.amount || '';
+    // Preserve existing value if already entered
+    const existingInput = document.getElementById(`txEventAmt_${eventId}`);
+    const currentVal = existingInput ? existingInput.value : suggestedAmt;
+    return `
+      <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);">
+        <span style="flex: 1; font-size: 0.9rem; color: var(--text-primary); font-weight: 500;" title="${title}">🎫 ${title}</span>
+        <div style="position: relative; width: 130px;">
+          <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.85rem;">₹</span>
+          <input type="number" step="0.01" min="0.01" id="txEventAmt_${eventId}" data-event-id="${eventId}"
+            class="form-control tx-per-event-amt" value="${currentVal}"
+            oninput="updatePerEventTotal()"
+            style="padding-left: 28px; text-align: right; font-weight: 600;" required placeholder="0.00">
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  updatePerEventTotal();
+}
+
+// Recalculate total of all per-event amounts
+function updatePerEventTotal() {
+  const inputs = document.querySelectorAll('.tx-per-event-amt');
+  let total = 0;
+  inputs.forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v)) total += v;
+  });
+  const totalEl = document.getElementById('txPerEventTotal');
+  if (totalEl) totalEl.textContent = formatINR(total);
+}
+
 async function saveTransaction(e) {
   e.preventDefault();
   const type = document.getElementById('txType').value;
-  const member_id = document.getElementById('txMemberId').value;
+  const member_id = txMemberSearchInstance ? txMemberSearchInstance.getValue() : (document.getElementById('txMemberId') ? document.getElementById('txMemberId').value : '');
   const outside_person_name = document.getElementById('txOutsideName').value;
   const outside_person_phone = document.getElementById('txOutsidePhone').value;
   const created_at = document.getElementById('txDate').value;
   
+  const mode = document.querySelector('input[name="txEventMode"]:checked')?.value || 'single';
+
   // Retrieve all selected event IDs from checklist
   const selectedCheckboxes = document.querySelectorAll('input[name="txEventIds"]:checked');
   const eventIds = Array.from(selectedCheckboxes).map(cb => cb.value);
   const event_id = eventIds.join(',');
 
-  const amount = document.getElementById('txAmount').value;
+  let amount;
+  let per_event_amounts = null;
+
+  if (mode === 'multiple' && eventIds.length > 0) {
+    // Collect per-event amounts
+    per_event_amounts = {};
+    let total = 0;
+    let valid = true;
+    eventIds.forEach(eid => {
+      const inp = document.getElementById(`txEventAmt_${eid}`);
+      const val = inp ? parseFloat(inp.value) : 0;
+      if (!inp || isNaN(val) || val <= 0) {
+        valid = false;
+      }
+      per_event_amounts[eid] = val;
+      total += val;
+    });
+    if (!valid) {
+      showToast('Please enter a valid positive amount for each selected event.', 'error');
+      return;
+    }
+    amount = total;
+  } else {
+    amount = document.getElementById('txAmount').value;
+  }
+
   const payment_mode = document.getElementById('txMode').value;
   const notes = document.getElementById('txNotes').value;
   const send_whatsapp = document.getElementById('txSendWhatsApp').checked;
@@ -1008,7 +1635,8 @@ async function saveTransaction(e) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       type, member_id, outside_person_name, outside_person_phone,
-      event_id, due_id, amount, payment_mode, notes, send_whatsapp, created_at
+      event_id, due_id, amount, payment_mode, notes, send_whatsapp, created_at,
+      per_event_amounts
     })
   });
 
@@ -1018,6 +1646,12 @@ async function saveTransaction(e) {
     closeModal('transactionModal');
     document.getElementById('txForm').reset();
     if (document.getElementById('txDueId')) document.getElementById('txDueId').value = '';
+    // Clear member search selector
+    if (txMemberSearchInstance) txMemberSearchInstance.clearSelection();
+    // Reset mode to single
+    const singleRadio = document.querySelector('input[name="txEventMode"][value="single"]');
+    if (singleRadio) singleRadio.checked = true;
+    handleEventModeChange();
     loadTransactionsData();
     loadMembersData();
     loadDashboardData();
@@ -1226,12 +1860,20 @@ async function deleteExpense(id) {
 // 6. PASSBOOK GENERATOR WITH PREVIOUS BALANCE
 function openPassbookForMember(memberId) {
   switchTab('passbook');
-  document.getElementById('passbookMemberSelect').value = memberId;
-  loadPassbook();
+  if (passbookSearchInstance) {
+    passbookSearchInstance.setValue(memberId);
+  } else {
+    // Fallback for hidden input
+    const sel = document.getElementById('passbookMemberSelect');
+    if (sel) sel.value = memberId;
+    loadPassbook();
+  }
 }
 
 async function loadPassbook() {
-  const memberId = document.getElementById('passbookMemberSelect').value;
+  const memberId = document.getElementById('passbookMemberSelect')
+    ? document.getElementById('passbookMemberSelect').value
+    : (passbookSearchInstance ? passbookSearchInstance.getValue() : '');
   if (!memberId) return;
 
   // Helper: converts DD/MM/YYYY → YYYY-MM-DD; passes YYYY-MM-DD through unchanged
@@ -1956,6 +2598,15 @@ function payEventDueForMember(memberId, eventId, dueId, pendingAmount) {
 
 function openTransactionModal(prefill = null) {
   document.getElementById('txDate').value = new Date().toISOString().slice(0, 10);
+  const singleRadio = document.querySelector('input[name="txEventMode"][value="single"]');
+  if (singleRadio) singleRadio.checked = true;
+  handleEventModeChange();
+
+  // Reset member search selector for a fresh open
+  if (!prefill && txMemberSearchInstance) {
+    txMemberSearchInstance.clearSelection();
+  }
+
   openModal('transactionModal');
 
   if (prefill) {
@@ -1964,7 +2615,12 @@ function openTransactionModal(prefill = null) {
       toggleTxTypeFields();
     }
     if (prefill.memberId) {
-      document.getElementById('txMemberId').value = prefill.memberId;
+      if (txMemberSearchInstance) {
+        txMemberSearchInstance.setValue(prefill.memberId);
+      } else {
+        const el = document.getElementById('txMemberId');
+        if (el) el.value = prefill.memberId;
+      }
     }
     if (prefill.dueId) {
       document.getElementById('txDueId').value = prefill.dueId;

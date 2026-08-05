@@ -1444,3 +1444,268 @@ body {
   @page { margin: 12mm 10mm; size: A4 portrait; }
 }
 
+/* ===================================
+   MEMBER SEARCH SELECT COMPONENT
+   =================================== */
+.member-search-select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.member-search-container {
+  position: relative;
+  width: 100%;
+}
+
+/* --- Search Input Box --- */
+.search-input-box-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.search-input-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.member-search-input {
+  width: 100%;
+  padding-right: 36px !important;
+  background: var(--bg-card) !important;
+  border: 1.5px solid var(--border-color) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--text-primary) !important;
+  font-size: 0.9rem !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+
+.member-search-input:focus {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+  outline: none !important;
+}
+
+.btn-input-reset {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: 50%;
+  transition: color 0.2s, background 0.2s;
+  z-index: 2;
+}
+
+.btn-input-reset:hover {
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.08);
+}
+
+/* --- Dropdown List --- */
+.member-search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: rgba(15, 23, 42, 0.97);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1.5px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 4px 16px rgba(0,0,0,0.3);
+  z-index: 9999;
+  max-height: 340px;
+  overflow: hidden;
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+@keyframes dropdownFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.member-search-results-list {
+  max-height: 340px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.member-search-results-list::-webkit-scrollbar { width: 4px; }
+.member-search-results-list::-webkit-scrollbar-track { background: transparent; }
+.member-search-results-list::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 2px; }
+
+/* --- Result Items --- */
+.member-search-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.member-search-item:last-child { border-bottom: none; }
+
+.member-search-item:hover,
+.member-search-item.highlighted {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.member-search-item .item-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.member-search-item .item-code {
+  font-size: 0.75rem;
+  color: var(--accent-gold);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.member-search-item .item-name {
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.member-search-item .item-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.badge-sm {
+  font-size: 0.65rem !important;
+  padding: 2px 7px !important;
+  border-radius: 20px !important;
+}
+
+.badge-active {
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #34D399 !important;
+  border: 1px solid rgba(52, 211, 153, 0.25) !important;
+}
+
+.badge-inactive {
+  background: rgba(239, 68, 68, 0.12) !important;
+  color: #F87171 !important;
+  border: 1px solid rgba(248, 113, 113, 0.25) !important;
+}
+
+/* --- Highlighted match text --- */
+.search-highlight {
+  background: rgba(234, 179, 8, 0.25);
+  color: #FACC15;
+  border-radius: 2px;
+  padding: 0 1px;
+  font-style: normal;
+}
+
+/* --- Empty State --- */
+.member-search-empty-state {
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.member-search-empty-state .empty-icon { font-size: 2rem; margin-bottom: 8px; opacity: 0.5; }
+.member-search-empty-state .empty-title { font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 0.92rem; }
+.member-search-empty-state .empty-subtitle { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 6px; }
+
+.member-search-empty-state .empty-tips {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-align: left;
+  display: inline-block;
+}
+
+.member-search-empty-state .empty-tips li { padding: 2px 0; }
+
+/* --- Selected Member Profile Card --- */
+.selected-member-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(15, 23, 42, 0.6) 100%);
+  border: 1.5px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  gap: 12px;
+  animation: cardSlideIn 0.2s ease-out;
+}
+
+@keyframes cardSlideIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.member-card-content { flex: 1; min-width: 0; }
+
+.member-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.member-avatar { font-size: 1.4rem; flex-shrink: 0; }
+
+.member-main-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.member-name-title { font-size: 0.97rem; font-weight: 700; color: var(--text-primary); }
+
+.member-badge { font-size: 0.68rem; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+
+.member-card-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding-left: 2px;
+}
+
+.member-card-details span { display: flex; align-items: center; gap: 4px; }
+
+/* --- Clear Selection Button --- */
+.btn-clear-selection {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #F87171;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  transition: background 0.2s, transform 0.15s;
+}
+
+.btn-clear-selection:hover {
+  background: rgba(239, 68, 68, 0.22);
+  transform: scale(1.1);
+}

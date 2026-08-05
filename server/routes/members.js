@@ -50,13 +50,66 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Search members by code, name, mobile, or email with priority ranking
+router.get('/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim().toLowerCase();
+    const includeInactive = req.query.includeInactive === 'true';
+
+    const members = await db.queryAll('SELECT * FROM members');
+    let filtered = members;
+    if (!includeInactive) {
+      filtered = filtered.filter(m => (m.member_status || 'Active').toUpperCase() === 'ACTIVE');
+    }
+
+    if (!q) {
+      // If query is empty, return top 20 sorted by name
+      filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      return res.json(filtered.slice(0, 20));
+    }
+
+    const matches = [];
+    for (const m of filtered) {
+      const code = (m.member_code || '').toLowerCase();
+      const phone = (m.phone || '').toLowerCase();
+      const altPhone = (m.alternative_number || '').toLowerCase();
+      const email = (m.email || '').toLowerCase();
+      const name = (m.name || '').toLowerCase();
+      const father = (m.father_name || '').toLowerCase();
+
+      let rank = Infinity;
+
+      if (code === q) rank = 1;
+      else if (phone === q || altPhone === q) rank = 2;
+      else if (email === q) rank = 3;
+      else if (name.startsWith(q)) rank = 4;
+      else if (name.includes(q)) rank = 5;
+      else if (code.includes(q)) rank = 6;
+      else if (phone.includes(q) || altPhone.includes(q)) rank = 7;
+      else if (email.includes(q)) rank = 8;
+      else if (father.includes(q)) rank = 9;
+
+      if (rank !== Infinity) {
+        matches.push({ member: m, rank });
+      }
+    }
+
+    matches.sort((a, b) => a.rank - b.rank || (a.member.name || '').localeCompare(b.member.name || ''));
+
+    const results = matches.slice(0, 20).map(m => m.member);
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Add new member
 router.post('/', async (req, res) => {
   try {
     const { 
       form_no, member_code, name, father_name, date_of_admission, 
       phone, email, aadhaar_number, blood_group, alternative_number, 
-      dob, member_status, address 
+      dob, member_status, address, initial_event_ids
     } = req.body;
 
     if (!name || !phone) {
@@ -89,19 +142,74 @@ router.post('/', async (req, res) => {
       ]
     );
 
-    // Automatically apply all existing event dues to this new member only if Active
+    const newMemberId = result.lastID;
     const mStatus = member_status || 'Active';
+
+    // Assign selected Fixed Contribution Events as initial dues if Active
     if (mStatus.toUpperCase() === 'ACTIVE') {
-      const events = await db.queryAll('SELECT id, contribution_amount FROM events');
-      for (const evt of events) {
-        await db.execute(
-          `INSERT INTO event_dues (event_id, member_id, amount, paid_amount, status) VALUES (?, ?, ?, 0, 'pending')`,
-          [evt.id, result.lastID, evt.contribution_amount]
-        );
+      let eventIdsToAssign = [];
+      if (Array.isArray(initial_event_ids)) {
+        eventIdsToAssign = initial_event_ids;
+      } else if (typeof initial_event_ids === 'string' && initial_event_ids.trim()) {
+        eventIdsToAssign = initial_event_ids.split(',').map(s => s.trim()).filter(Boolean);
+      }
+
+      if (eventIdsToAssign.length > 0) {
+        const events = await db.queryAll('SELECT id, contribution_amount, contribution_type FROM events');
+        const assignedSet = new Set();
+        for (const evtId of eventIdsToAssign) {
+          const evt = events.find(e => String(e.id) === String(evtId));
+          // Only Active Fixed Contribution events with amount > 0 can be assigned as dues
+          if (evt && (evt.contribution_type !== 'flexible') && parseFloat(evt.contribution_amount) > 0 && !assignedSet.has(evt.id)) {
+            assignedSet.add(evt.id);
+            await db.execute(
+              `INSERT INTO event_dues (event_id, member_id, amount, paid_amount, status) VALUES (?, ?, ?, 0, 'pending')`,
+              [evt.id, newMemberId, parseFloat(evt.contribution_amount)]
+            );
+          }
+        }
       }
     }
 
-    res.json({ success: true, id: result.lastID, member_code: code, form_no: formNoVal });
+    res.json({ success: true, id: newMemberId, member_code: code, form_no: formNoVal });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Member (Admin / Manager)
+// Deletes member profile and all unpaid dues while preserving historical payment transactions and receipts for audit
+router.delete('/:id', async (req, res) => {
+  try {
+    const memberId = req.params.id;
+    const member = await db.queryOne('SELECT * FROM members WHERE id = ?', [memberId]);
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+
+    // 1. Preserve transaction audit trail: preserve member name & phone on transactions before unlinking member_id
+    await db.execute(
+      `UPDATE transactions SET outside_person_name = COALESCE(outside_person_name, ?), outside_person_phone = COALESCE(outside_person_phone, ?), member_id = NULL WHERE member_id = ?`,
+      [member.name, member.phone || '', memberId]
+    );
+
+    // 2. Delete all unpaid due entries (paid_amount = 0)
+    await db.execute(
+      `DELETE FROM event_dues WHERE member_id = ? AND (paid_amount = 0 OR paid_amount IS NULL)`,
+      [memberId]
+    );
+
+    // 3. For partially paid dues, set amount = paid_amount & status = 'completed' so pending due balance is 0 while preserving historical paid amounts
+    await db.execute(
+      `UPDATE event_dues SET amount = paid_amount, status = 'completed' WHERE member_id = ? AND paid_amount > 0`,
+      [memberId]
+    );
+
+    // 4. Delete member profile permanently
+    await db.execute(`DELETE FROM members WHERE id = ?`, [memberId]);
+
+    res.json({
+      success: true,
+      message: `Member '${member.name}' deleted successfully. Unpaid dues removed; payment history retained for audit.`
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -444,6 +552,109 @@ router.get('/:id/passbook', async (req, res) => {
       current_due_balance: runningDueBalance
     });
 
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET ALL DUES FOR A SPECIFIC MEMBER ──────────────────────────────────────
+// GET /api/members/:memberId/dues
+router.get('/:memberId/dues', async (req, res) => {
+  try {
+    const memberId = parseInt(req.params.memberId, 10);
+
+    const dues = await db.queryAll(`
+      SELECT ed.id, ed.event_id, ed.amount, ed.paid_amount, ed.status,
+             e.title AS event_title, e.event_date, e.contribution_type
+      FROM event_dues ed
+      JOIN events e ON ed.event_id = e.id
+      WHERE ed.member_id = ?
+      ORDER BY e.event_date DESC
+    `, [memberId]);
+
+    res.json(dues);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── IMPOSE EVENT DUE FOR A MEMBER (Admin) ──────────────────────────────────
+// POST /api/members/:memberId/impose-due
+// Body: { event_id, amount }
+router.post('/:memberId/impose-due', async (req, res) => {
+  try {
+    const memberId = parseInt(req.params.memberId, 10);
+    const { event_id, amount } = req.body;
+
+    if (!event_id || !amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ error: 'event_id and a valid positive amount are required' });
+    }
+
+    // Fetch member — must be Active
+    const member = await db.queryOne(`SELECT * FROM members WHERE id = ?`, [memberId]);
+    if (!member) return res.status(404).json({ error: 'Member not found' });
+    if ((member.member_status || 'Active').toUpperCase() !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Dues can only be imposed on Active members' });
+    }
+
+    // Fetch event — must be Fixed contribution type
+    const event = await db.queryOne(`SELECT * FROM events WHERE id = ?`, [event_id]);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if ((event.contribution_type || 'fixed') === 'flexible') {
+      return res.status(400).json({ error: 'Cannot impose a fixed due for a Flexible contribution event' });
+    }
+
+    // Check for existing unpaid due for same member + event
+    const existing = await db.queryOne(
+      `SELECT * FROM event_dues WHERE event_id = ? AND member_id = ? AND status != 'completed'`,
+      [event_id, memberId]
+    );
+    if (existing) {
+      return res.status(400).json({
+        error: `Member already has an outstanding (unpaid) due for this event (₹${parseFloat(existing.amount).toFixed(2)}). Revoke it first if needed.`
+      });
+    }
+
+    const amountNum = parseFloat(amount);
+
+    // Create the due entry
+    await db.execute(
+      `INSERT INTO event_dues (event_id, member_id, amount, paid_amount, status) VALUES (?, ?, ?, 0, 'pending')`,
+      [event_id, memberId, amountNum]
+    );
+
+    res.json({
+      success: true,
+      message: `✅ ₹${amountNum.toFixed(2)} contribution imposed on ${member.name} for "${event.title}".`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── REVOKE EVENT DUE FOR A MEMBER (Admin) ──────────────────────────────────
+// DELETE /api/members/revoke-due/:dueId
+router.delete('/revoke-due/:dueId', async (req, res) => {
+  try {
+    const dueId = parseInt(req.params.dueId, 10);
+
+    const due = await db.queryOne(`SELECT * FROM event_dues WHERE id = ?`, [dueId]);
+    if (!due) return res.status(404).json({ error: 'Due entry not found' });
+
+    // Block revoke if any payment has been made
+    if (parseFloat(due.paid_amount || 0) > 0) {
+      return res.status(400).json({
+        error: `This contribution has already been partially or fully paid (₹${parseFloat(due.paid_amount).toFixed(2)} paid). Paid contributions cannot be revoked.`
+      });
+    }
+
+    if (due.status === 'completed') {
+      return res.status(400).json({ error: 'Fully paid contributions cannot be revoked.' });
+    }
+
+    await db.execute(`DELETE FROM event_dues WHERE id = ?`, [dueId]);
+
+    res.json({ success: true, message: '✅ Unpaid event contribution revoked successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

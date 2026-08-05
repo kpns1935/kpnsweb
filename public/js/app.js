@@ -1,6 +1,8 @@
 let currentUser = null;
-let membersList = [];
-let eventsList = [];
+window.membersList = window.membersList || [];
+window.eventsList = window.eventsList || [];
+var membersList = window.membersList;
+var eventsList = window.eventsList;
 let currentReceiptData = null;
 let parsedExcelMembers = [];
 let editingMemberId = null;
@@ -584,6 +586,7 @@ async function loadMembersData() {
   try {
     const res = await fetch('/api/members');
     membersList = await res.json();
+    window.membersList = membersList;
 
     // Populate dropdowns and filter/render table
     populateMemberDropdowns();
@@ -944,6 +947,7 @@ async function loadEventsData() {
   try {
     const res = await fetch('/api/events');
     eventsList = await res.json();
+    window.eventsList = eventsList;
 
     const tbody = document.getElementById('eventsTableBody');
     tbody.innerHTML = eventsList.map(e => `

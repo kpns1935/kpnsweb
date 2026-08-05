@@ -146,10 +146,39 @@ class MemberSearchSelect {
     }, 150);
   }
 
-  search(query, forceOpen = false) {
+  getMembersList() {
+    if (Array.isArray(window.membersList) && window.membersList.length > 0) {
+      return window.membersList;
+    }
+    if (typeof membersList !== 'undefined' && Array.isArray(membersList) && membersList.length > 0) {
+      window.membersList = membersList;
+      return membersList;
+    }
+    return window.membersList || [];
+  }
+
+  async search(query, forceOpen = false) {
     const q = (query || '').trim().toLowerCase();
 
-    let allMembers = window.membersList || [];
+    let allMembers = this.getMembersList();
+
+    // If cache is empty, attempt to fetch from backend automatically
+    if (allMembers.length === 0) {
+      try {
+        const res = await fetch('/api/members');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            window.membersList = data;
+            if (typeof membersList !== 'undefined') membersList = data;
+            allMembers = data;
+          }
+        }
+      } catch (err) {
+        console.error('MemberSearchSelect fallback fetch error:', err);
+      }
+    }
+
     if (!this.includeInactive) {
       allMembers = allMembers.filter(m => (m.member_status || 'Active').toUpperCase() === 'ACTIVE');
     }
@@ -413,13 +442,27 @@ class MemberSearchSelect {
     }
   }
 
-  setValue(memberId) {
+  async setValue(memberId) {
     if (!memberId) {
       this.clearSelection();
       return;
     }
 
-    const members = window.membersList || [];
+    let members = this.getMembersList();
+    if (members.length === 0) {
+      try {
+        const res = await fetch('/api/members');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            window.membersList = data;
+            if (typeof membersList !== 'undefined') membersList = data;
+            members = data;
+          }
+        }
+      } catch (err) {}
+    }
+
     const member = members.find(m => m.id == memberId);
     if (member) {
       this.selectMember(member);

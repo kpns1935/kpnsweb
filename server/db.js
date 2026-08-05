@@ -465,4 +465,5 @@ const db = {
 
 initDb();
 
+db.supabaseClient = supabaseClient;
 module.exports = db;

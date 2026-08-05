@@ -441,13 +441,39 @@ router.get('/:id/passbook', async (req, res) => {
     const toTs = `${toFilter} 23:59:59`;
 
     // Fetch all dues and transactions for this member
+    // Use explicit column list to avoid Supabase relational join errors caused by
+    // comma-separated event_id values (e.g. "1,2,3") stored in the transactions table
     const allMemberDues = await db.queryAll('SELECT * FROM event_dues WHERE member_id = ?', [memberId]);
-    const allMemberTransactions = await db.queryAll('SELECT * FROM transactions WHERE member_id = ?', [memberId]);
+
+    // Fetch transactions with a plain select — avoid relational events(title) join
+    // which breaks when event_id is a comma-separated string
+    let allMemberTransactions = [];
+    try {
+      const { data: txData, error: txError } = await db.supabaseClient
+        .from('transactions')
+        .select('*')
+        .eq('member_id', memberId);
+      if (txError) throw new Error(txError.message);
+      allMemberTransactions = txData || [];
+    } catch (txErr) {
+      // Fallback to db.queryAll (may work if event_ids are all integers)
+      allMemberTransactions = await db.queryAll('SELECT * FROM transactions WHERE member_id = ?', [memberId]);
+    }
 
     // Fetch events lookup map
     const events = await db.queryAll('SELECT id, title, contribution_amount, event_date FROM events');
     const eventMap = {};
     for (const e of events) eventMap[e.id] = e;
+
+    // Enrich transactions with event_title from eventMap
+    for (const t of allMemberTransactions) {
+      if (!t.event_title && t.event_id) {
+        // event_id may be a comma-separated string — take the first one for title
+        const firstEventId = String(t.event_id).split(',')[0].trim();
+        const ev = eventMap[firstEventId] || eventMap[parseInt(firstEventId, 10)];
+        if (ev) t.event_title = ev.title;
+      }
+    }
 
     // 1. Calculate PREVIOUS BALANCE before from_date
     let previousDueBalance = 0;
@@ -477,12 +503,12 @@ router.get('/:id/passbook', async (req, res) => {
     // 2. Fetch entries within range [from_date, to_date]
     const duesInRange = [];
     for (const d of allMemberDues) {
-      const ev = eventMap[d.event_id] || d.events || {};
+      const ev = eventMap[d.event_id] || {};
       // Prioritize the actual Event Date (ev.event_date)
       const eventDate = ev.event_date || d.event_date || d.created_at || ev.created_at || '';
       const eventDateOnly = (eventDate || '').slice(0, 10);
       const eventTitle = ev.title || d.event_title || 'Event Contribution';
-      const contribAmt = parseFloat(d.contribution_amount || ev.contribution_amount || d.amount) || 0;
+      const contribAmt = parseFloat(ev.contribution_amount || d.amount) || 0;
 
       if (!eventDateOnly || (eventDateOnly >= fromFilter && eventDateOnly <= toFilter)) {
         duesInRange.push({
@@ -499,11 +525,14 @@ router.get('/:id/passbook', async (req, res) => {
 
     const transactionsInRange = [];
     for (const t of allMemberTransactions) {
+      // Only include member_payment and member_donation in passbook
+      if (t.type !== 'member_payment' && t.type !== 'member_donation') continue;
+
       const txDate = t.created_at ? t.created_at.slice(0, 10) : '';
       if (!txDate || (txDate >= fromFilter && txDate <= toFilter)) {
         const isPayment = t.type === 'member_payment';
         const entry_type = isPayment ? 'DUES_PAYMENT' : 'DONATION_PAYMENT';
-        const eventTitle = t.event_title || (t.events ? t.events.title : 'General Payment / Donation');
+        const eventTitle = t.event_title || 'General Payment / Donation';
         const notesStr = t.notes ? ` (${t.notes})` : '';
         const description = `${t.receipt_no || 'REC'} - ${eventTitle}${notesStr}`;
 

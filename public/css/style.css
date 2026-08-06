@@ -2882,3 +2882,503 @@ tr.member-row-expand.show {
 @media (max-width: 480px) {
   .event-metrics-summary { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   MEMBER PASSBOOK STATEMENT SaaS & MOBILE-FIRST REDESIGN
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Passbook Toolbar & Filters Box ──────────────────────────── */
+.passbook-toolbar-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.passbook-search-group {
+  flex: 2;
+  min-width: 260px;
+}
+
+.passbook-date-group {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.form-label-sm {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  display: block;
+}
+
+.form-control-sm {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  height: 34px;
+}
+
+/* ── Passbook Main Container ──────────────────────────────────── */
+.passbook-container-card {
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  backdrop-filter: blur(12px);
+  position: relative;
+}
+
+/* ── Stacked Member Profile Card Header ───────────────────────── */
+.passbook-member-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 18px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--glass-border);
+  flex-wrap: wrap;
+}
+
+.passbook-avatar-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.passbook-member-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.passbook-member-title {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--accent-gold);
+  line-height: 1.2;
+}
+
+.passbook-member-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.passbook-period-block {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.passbook-org-badge {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--accent-emerald);
+  letter-spacing: -0.3px;
+}
+
+.passbook-period-text {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ── Balance Cards Track (Horizontal Swipe on Mobile) ────────── */
+.passbook-balance-track {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.passbook-metric-card {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.passbook-metric-card:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+}
+
+.passbook-metric-card.highlight-due {
+  background: rgba(234, 179, 8, 0.08);
+  border-color: rgba(234, 179, 8, 0.3);
+}
+
+.pb-metric-icon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.pb-metric-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.pb-metric-lbl {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.pb-metric-val {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.pb-metric-sub {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* ── Quick Filter Chips ───────────────────────────────────────── */
+.passbook-filter-row {
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--glass-border);
+}
+
+/* ── Passbook Rich Badging ───────────────────────────────────── */
+.pb-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.pb-badge-opening {
+  background: rgba(245, 158, 11, 0.15);
+  color: #FCD34D;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pb-badge-charge {
+  background: rgba(239, 68, 68, 0.15);
+  color: #F87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.pb-badge-payment {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ADE80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.pb-badge-adjustment {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60A5FA;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.pb-badge-revoked {
+  background: rgba(148, 163, 184, 0.15);
+  color: #CBD5E1;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+/* ── Desktop View Table Options ───────────────────────────────── */
+.passbook-desktop-view {
+  display: block;
+}
+
+.passbook-row-expandable {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.passbook-row-expandable:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.passbook-row-detail {
+  background: rgba(15, 23, 42, 0.6);
+  font-size: 0.82rem;
+}
+
+.passbook-detail-box {
+  padding: 12px 16px;
+  border-left: 3px solid var(--accent-primary);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+/* ── Mobile Timeline View (<768px) ────────────────────────────── */
+.passbook-mobile-timeline {
+  display: none;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+}
+
+/* Vertical Timeline Connecting Line */
+.passbook-mobile-timeline::before {
+  content: '';
+  position: absolute;
+  top: 15px;
+  bottom: 15px;
+  left: 20px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  z-index: 1;
+}
+
+.passbook-timeline-card {
+  position: relative;
+  z-index: 2;
+  margin-left: 42px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.passbook-timeline-card::before {
+  content: '';
+  position: absolute;
+  left: -30px;
+  top: 18px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 3px solid var(--text-muted);
+  z-index: 3;
+}
+
+.passbook-timeline-card.type-opening::before { border-color: #F59E0B; background: #F59E0B; }
+.passbook-timeline-card.type-charge::before  { border-color: #EF4444; background: #EF4444; }
+.passbook-timeline-card.type-payment::before { border-color: #10B981; background: #10B981; }
+.passbook-timeline-card.type-adjust::before  { border-color: #3B82F6; background: #3B82F6; }
+
+.passbook-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.passbook-card-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.passbook-card-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.passbook-card-body {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.passbook-card-amount {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.passbook-card-balance {
+  text-align: right;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.passbook-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.passbook-card-drawer {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.8);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Sticky Top Balance Header ────────────────────────────────── */
+.passbook-sticky-bar {
+  position: sticky;
+  top: 60px;
+  z-index: 99;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(12px);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+.passbook-sticky-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.passbook-sticky-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.passbook-sticky-code {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.passbook-sticky-due {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+}
+
+.passbook-sticky-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.passbook-sticky-val {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--accent-gold);
+}
+
+/* ── Floating Action Button (FAB) ────────────────────────────── */
+.passbook-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  background: linear-gradient(135deg, #10B981, #059669);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 30px;
+  padding: 12px 20px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.passbook-fab:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 12px 28px rgba(16, 185, 129, 0.5);
+}
+
+.passbook-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  background: rgba(30, 41, 59, 0.4);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--glass-border);
+}
+
+/* ── Responsive Breakpoint Overrides ─────────────────────────── */
+@media (max-width: 991px) {
+  .passbook-balance-track {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .passbook-toolbar-box {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .passbook-member-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .passbook-period-block {
+    text-align: left;
+    align-items: flex-start;
+  }
+
+  /* Horizontal swipe balance cards on mobile */
+  .passbook-balance-track {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 8px;
+  }
+
+  .passbook-balance-track::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .passbook-balance-track::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 4px;
+  }
+
+  .passbook-metric-card {
+    flex: 0 0 82%;
+    scroll-snap-align: start;
+  }
+
+  /* Switch view to Mobile Timeline */
+  .passbook-desktop-view {
+    display: none !important;
+  }
+
+  .passbook-mobile-timeline {
+    display: flex !important;
+  }
+}
+

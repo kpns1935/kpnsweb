@@ -2095,27 +2095,161 @@ function toggleImposeWarning(checked) {
 }
 
 // 4. TRANSACTIONS & RECEIPT SLIPS
+// ══════════════════════════════════════════════════════════════
+// TRANSACTIONS SaaS ENGINE — State & Multi-Criteria Search
+// ══════════════════════════════════════════════════════════════
+
+let txTypeFilter = 'all'; // 'all', 'member_payment', 'member_donation', 'outside_donation'
+let txSortKey = 'date_desc'; // 'date_desc', 'date_asc', 'amount_desc', 'receipt_asc'
+let transactionsList = [];
+
 async function loadTransactionsData() {
   try {
     const res = await fetch('/api/transactions');
     const txs = await res.json();
+    transactionsList = txs;
+    window.transactionsList = txs;
 
-    const tbody = document.getElementById('txTableBody');
-    tbody.innerHTML = txs.map(t => `
+    updateTxChipCounts();
+    filterTransactionsTable();
+  } catch (err) {
+    console.error('Transactions load error:', err);
+  }
+}
+
+function updateTxChipCounts() {
+  if (!Array.isArray(transactionsList)) return;
+
+  const counts = { all: transactionsList.length, member_payment: 0, member_donation: 0, outside_donation: 0 };
+  transactionsList.forEach(t => {
+    if (counts[t.type] !== undefined) counts[t.type]++;
+  });
+
+  const setCnt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setCnt('txCountAll', counts.all);
+  setCnt('txCountPayment', counts.member_payment);
+  setCnt('txCountDonation', counts.member_donation);
+  setCnt('txCountOutside', counts.outside_donation);
+}
+
+function setTxTypeFilter(type) {
+  txTypeFilter = type;
+
+  const chips = {
+    all: 'txChipAll',
+    member_payment: 'txChipPayment',
+    member_donation: 'txChipDonation',
+    outside_donation: 'txChipOutside'
+  };
+
+  Object.keys(chips).forEach(k => {
+    const el = document.getElementById(chips[k]);
+    if (el) el.classList.toggle('active', k === type);
+  });
+
+  filterTransactionsTable();
+}
+
+function setTxSort(sortKey) {
+  txSortKey = sortKey;
+  filterTransactionsTable();
+}
+
+function onTxSearchInput(query) {
+  const clearBtn = document.getElementById('txClearBtn');
+  if (clearBtn) clearBtn.style.display = query.trim() ? 'inline-flex' : 'none';
+  filterTransactionsTable();
+}
+
+function clearTxSearch() {
+  const input = document.getElementById('txSearchInput');
+  if (input) input.value = '';
+  const clearBtn = document.getElementById('txClearBtn');
+  if (clearBtn) clearBtn.style.display = 'none';
+  filterTransactionsTable();
+}
+
+function filterTransactionsTable() {
+  if (!Array.isArray(transactionsList)) return;
+
+  const rawQuery = (document.getElementById('txSearchInput')?.value || '').toLowerCase().trim();
+
+  // Multi-criteria filter matching:
+  // 1. Receipt No (e.g. KPNS-MR-2026-001)
+  // 2. Member / Outside Person Name
+  // 3. Member ID (Code)
+  // 4. Mobile Number (member or outside person)
+  // 5. Notes / Event Title
+  let filtered = transactionsList.filter(t => {
+    if (txTypeFilter !== 'all' && t.type !== txTypeFilter) return false;
+
+    if (rawQuery) {
+      const haystack = [
+        t.receipt_no || '',
+        t.member_name || '',
+        t.outside_person_name || '',
+        t.member_code || '',
+        t.member_phone || '',
+        t.outside_person_phone || '',
+        t.notes || '',
+        t.event_title || ''
+      ].join(' ').toLowerCase();
+
+      if (!haystack.includes(rawQuery)) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  filtered.sort((a, b) => {
+    if (txSortKey === 'date_asc') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+    if (txSortKey === 'amount_desc') return (parseFloat(b.amount) || 0) - (parseFloat(a.amount) || 0);
+    if (txSortKey === 'receipt_asc') return (a.receipt_no || '').localeCompare(b.receipt_no || '');
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0); // date_desc
+  });
+
+  renderTransactionsTable(filtered);
+}
+
+function renderTransactionsTable(txs) {
+  const tbody = document.getElementById('txTableBody');
+  if (!tbody) return;
+
+  if (!txs || txs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px;">No transactions found matching search criteria.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = txs.map(t => {
+    const isPayment = t.type === 'member_payment';
+    const isDonation = t.type === 'member_donation';
+
+    let typeBadge;
+    if (isPayment) typeBadge = '<span class="pb-badge pb-badge-payment">🟢 Payment</span>';
+    else if (isDonation) typeBadge = '<span class="pb-badge pb-badge-opening">🟡 Donation</span>';
+    else typeBadge = '<span class="pb-badge pb-badge-adjustment">🔵 Outside Donation</span>';
+
+    const personName = t.member_name || t.outside_person_name || 'Guest / Outside';
+    const personCode = t.member_code ? `<span class="badge badge-secondary" style="font-size:0.72rem;">ID: ${t.member_code}</span>` : '';
+    const personPhone = (t.member_phone || t.outside_person_phone) ? `<span style="font-size:0.78rem;color:var(--text-muted);">📞 ${t.member_phone || t.outside_person_phone}</span>` : '';
+
+    return `
       <tr>
-        <td><strong class="text-gold">${t.receipt_no}</strong></td>
-        <td>${formatDate(t.created_at)}</td>
+        <td><strong class="text-gold" style="font-size:0.9rem;">${t.receipt_no}</strong></td>
+        <td style="white-space:nowrap;">${formatDate(t.created_at)}</td>
+        <td>${typeBadge}</td>
         <td>
-          <span class="badge ${t.type === 'member_payment' ? 'badge-completed' : (t.type === 'member_donation' ? 'badge-partial' : 'badge-pending')}">
-            ${t.type === 'member_payment' ? 'Member Payment' : (t.type === 'member_donation' ? 'Member Donation' : 'Outside Donation')}
-          </span>
+          <div><strong>${personName}</strong></div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:2px;">
+            ${personCode}
+            ${personPhone}
+          </div>
         </td>
-        <td><strong>${t.member_name || t.outside_person_name || '-'}</strong></td>
-        <td class="text-emerald"><strong>${formatINR(t.amount)}</strong></td>
-        <td>${t.payment_mode || 'Cash'}</td>
-        <td>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-outline btn-sm" onclick="viewReceipt(${t.id})">🧾 Sleep</button>
+        <td class="text-emerald"><strong style="font-size:0.95rem;">${formatINR(t.amount)}</strong></td>
+        <td><span class="badge badge-secondary" style="font-size:0.75rem;">${t.payment_mode || 'Cash'}</span></td>
+        <td style="text-align: right;">
+          <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="viewReceipt(${t.id})" title="View / Print Receipt Slip">🧾 Slip</button>
             ${isManagementRole(currentUser) ? `
               <button class="btn btn-outline btn-sm" onclick="editTransaction(${t.id})">✏️ Edit</button>
               <button class="btn btn-rose btn-sm" onclick="deleteTransaction(${t.id})">🗑️ Delete</button>
@@ -2123,10 +2257,8 @@ async function loadTransactionsData() {
           </div>
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="7" style="text-align: center;">No transactions found.</td></tr>';
-  } catch (err) {
-    console.error('Transactions load error:', err);
-  }
+    `;
+  }).join('');
 }
 
 // Edit Event
@@ -2945,6 +3077,14 @@ function openPassbookForMember(memberId) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// MEMBER PASSBOOK STATEMENT ENGINE
+// ══════════════════════════════════════════════════════════════
+
+let passbookFilter = 'all'; // 'all', 'charges', 'payments', 'adjustments'
+let passbookCurrentData = null;
+const expandedPassbookItemIds = new Set();
+
 async function loadPassbook() {
   const memberId = document.getElementById('passbookMemberSelect')
     ? document.getElementById('passbookMemberSelect').value
@@ -2969,107 +3109,373 @@ async function loadPassbook() {
   try {
     const res = await fetch(url);
     const data = await res.json();
+    passbookCurrentData = data;
 
-    const m = data.member;
-
-    // Helper: format date as "01 Jan 1970"
-    const fmtLong = (d) => {
-      if (!d) return '-';
-      const dt = new Date(d.length === 10 ? d + 'T00:00:00' : d);
-      return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    };
-
-    document.getElementById('passbookMemberName').innerText = `${m.name} (S/O ${m.father_name || 'N/A'})`;
-
-    const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${(m.member_status||'Active').toUpperCase()==='ACTIVE'?'#22c55e':'#ef4444'};margin-right:4px;"></span>`;
-    document.getElementById('passbookMemberCode').innerHTML =
-      `Form No: ${m.form_no || '-'} &nbsp;|&nbsp; Member ID: ${m.member_code} &nbsp;|&nbsp; Mobile: ${m.phone} &nbsp;|&nbsp; Member Status: ${statusDot}${m.member_status || 'Active'}`;
-
-    // Statement Period: "01 Jan 1970 – 03 Aug 2026"
-    document.getElementById('passbookPeriodText').innerText = `${fmtLong(data.from_date)} – ${fmtLong(data.to_date)}`;
-
-    document.getElementById('passbookPrevDue').innerText = formatINR(data.previous_due_balance);
-    document.getElementById('passbookCurrentDue').innerText = formatINR(data.current_due_balance);
-
-    const tbody = document.getElementById('passbookTableBody');
-
-    // Balance cell helper: show "₹x Due" / "₹0.00 ✓ Cleared"
-    const balanceCell = (bal) => {
-      if (bal <= 0) {
-        return `<td><strong class="text-emerald">${formatINR(0)}</strong><br><small style="color:var(--accent-success);font-size:0.72rem;font-weight:600;">✓ Cleared</small></td>`;
-      }
-      return `<td><strong class="text-rose">${formatINR(bal)}</strong><br><small style="color:var(--accent-danger);font-size:0.72rem;font-weight:600;">Due</small></td>`;
-    };
-
-    // Opening balance row
-    const openingBal = data.previous_due_balance;
-    let html = `
-      <tr style="background: rgba(245, 158, 11, 0.08);">
-        <td><strong>${fmtLong(data.from_date)}</strong></td>
-        <td><span class="badge badge-partial" style="font-size:0.72rem;">Opening Balance</span></td>
-        <td><strong>Opening Balance as on ${fmtLong(data.from_date)}</strong></td>
-        <td style="color:var(--text-muted);">–</td>
-        <td style="color:var(--text-muted);">–</td>
-        <td style="color:var(--text-muted);">–</td>
-        ${balanceCell(openingBal)}
-      </tr>
-    `;
-
-    if (data.entries && data.entries.length > 0) {
-      html += data.entries.map(item => {
-        const isDue = item.entry_type === 'DUE_IMPOSED';
-        const isPayment = item.entry_type === 'DUES_PAYMENT';
-        const isDonation = item.entry_type === 'DONATION_PAYMENT';
-
-        // Transaction Type label & badge
-        let txLabel, badgeClass;
-        if (isDue)       { txLabel = 'Charge Applied';    badgeClass = 'badge-pending'; }
-        else if (isPayment)  { txLabel = 'Payment Received'; badgeClass = 'badge-completed'; }
-        else if (isDonation) { txLabel = 'Donation';        badgeClass = 'badge-partial'; }
-        else                 { txLabel = item.entry_type;   badgeClass = 'badge-partial'; }
-
-        // Particulars
-        let particulars;
-        if (isDue) {
-          particulars = `Event Fee – ${item.description}`;
-        } else if (isPayment) {
-          // Extract receipt no from description ("KPNS-MR-2026-011 - Event Name")
-          const receiptMatch = item.description.match(/^([^\s-][^\s]*(?:-[^\s]+)*)\s*-\s*/);
-          const receiptNo = receiptMatch ? receiptMatch[1] : (item.receipt_no || '');
-          const eventName = item.description.replace(/^[^-]+-\s*/, '').trim();
-          particulars = `Payment for ${eventName}<br><small style="color:var(--text-muted);font-size:0.75rem;">Receipt: ${receiptNo}</small>`;
-        } else if (isDonation) {
-          particulars = item.description;
-        } else {
-          particulars = item.description;
-        }
-
-        // Event Fee column
-        const eventFeeCell = isDue && item.contribution_amount > 0
-          ? `<td class="text-gold"><strong>${formatINR(item.contribution_amount)}</strong></td>`
-          : `<td style="color:var(--text-muted);">–</td>`;
-
-        return `
-          <tr>
-            <td style="white-space:nowrap;">${fmtLong(item.date)}</td>
-            <td><span class="badge ${badgeClass}" style="font-size:0.72rem;white-space:nowrap;">${txLabel}</span></td>
-            <td>${particulars}</td>
-            ${eventFeeCell}
-            <td class="text-rose">${item.debit > 0 ? formatINR(item.debit) : '–'}</td>
-            <td class="text-emerald">${item.credit > 0 ? formatINR(item.credit) : '–'}</td>
-            ${balanceCell(item.due_balance)}
-          </tr>
-        `;
-      }).join('');
-    } else {
-      html += `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">No transaction activity found in selected date range.</td></tr>`;
-    }
-
-    tbody.innerHTML = html;
+    renderPassbookStatement();
   } catch (err) {
     console.error('Passbook load error:', err);
+    showToast('Failed to load member passbook', 'error');
   }
 }
+
+function renderPassbookStatement() {
+  if (!passbookCurrentData) return;
+  const data = passbookCurrentData;
+  const m = data.member || {};
+
+  // Helper: format date as "01 Jan 1970"
+  const fmtLong = (d) => {
+    if (!d) return '-';
+    const dt = new Date(d.length === 10 ? d + 'T00:00:00' : d);
+    return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+
+  // Avatar Initials & Color
+  const initials = typeof getMemberInitials === 'function' ? getMemberInitials(m.name || 'Member') : 'MB';
+  const avatarBg = typeof getAvatarColor === 'function' ? getAvatarColor(m.id || 0) : 'linear-gradient(135deg, #2563eb, #1d4ed8)';
+  const avatarEl = document.getElementById('pbMemberAvatar');
+  if (avatarEl) {
+    avatarEl.style.background = avatarBg;
+    avatarEl.innerText = initials;
+  }
+
+  // Header Details
+  document.getElementById('passbookMemberName').innerText = `${m.name || 'Member'} ${m.father_name ? `(S/O ${m.father_name})` : ''}`;
+
+  const isStatusActive = (m.member_status || 'ACTIVE').toUpperCase() === 'ACTIVE';
+  const statusBadgeClass = isStatusActive ? 'badge-active' : 'badge-inactive';
+  const statusIcon = isStatusActive ? '🟢' : '🔴';
+
+  document.getElementById('passbookMemberCode').innerHTML = `
+    <span class="badge badge-secondary">Member ID: ${m.member_code || '-'}</span>
+    <span class="badge badge-secondary">Form No: ${m.form_no || '-'}</span>
+    <span class="badge badge-secondary">📞 ${m.phone || '-'}</span>
+    <span class="badge ${statusBadgeClass}">${statusIcon} ${m.member_status || 'Active'}</span>
+  `;
+
+  // Sticky Bar Header
+  document.getElementById('pbStickyName').innerText = m.name || 'Member';
+  document.getElementById('pbStickyCode').innerText = m.member_code || 'ID: -';
+  document.getElementById('pbStickyDue').innerText = formatINR(data.current_due_balance || 0);
+
+  const stickyBar = document.getElementById('passbookStickyHeader');
+  if (stickyBar) stickyBar.style.display = 'flex';
+
+  // Statement Period
+  document.getElementById('passbookPeriodText').innerText = `${fmtLong(data.from_date)} → ${fmtLong(data.to_date)}`;
+
+  // Calculate Totals
+  let totalCharges = 0;
+  let totalPaid = 0;
+
+  const entries = data.entries || [];
+  entries.forEach(e => {
+    if (e.debit > 0) totalCharges += parseFloat(e.debit) || 0;
+    if (e.credit > 0) totalPaid += parseFloat(e.credit) || 0;
+  });
+
+  // Balance Metrics
+  document.getElementById('passbookPrevDue').innerText = formatINR(data.previous_due_balance || 0);
+  document.getElementById('passbookTotalCharges').innerText = formatINR(totalCharges);
+  document.getElementById('passbookTotalPaid').innerText = formatINR(totalPaid);
+  document.getElementById('passbookCurrentDue').innerText = formatINR(data.current_due_balance || 0);
+
+  // Filter Counts
+  let chargesCount = 0, paymentsCount = 0, adjustmentsCount = 0;
+  entries.forEach(e => {
+    if (e.entry_type === 'DUE_IMPOSED') chargesCount++;
+    else if (e.entry_type === 'DUES_PAYMENT' || e.entry_type === 'DONATION_PAYMENT') paymentsCount++;
+    else adjustmentsCount++;
+  });
+
+  const setCnt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setCnt('pbCountAll', entries.length + 1); // +1 for Opening balance
+  setCnt('pbCountCharges', chargesCount);
+  setCnt('pbCountPayments', paymentsCount);
+  setCnt('pbCountAdjustments', adjustmentsCount);
+
+  // Filter entries
+  let filteredEntries = entries.filter(e => {
+    if (passbookFilter === 'charges') return e.entry_type === 'DUE_IMPOSED';
+    if (passbookFilter === 'payments') return e.entry_type === 'DUES_PAYMENT' || e.entry_type === 'DONATION_PAYMENT';
+    if (passbookFilter === 'adjustments') return e.entry_type !== 'DUE_IMPOSED' && e.entry_type !== 'DUES_PAYMENT' && e.entry_type !== 'DONATION_PAYMENT';
+    return true;
+  });
+
+  // Render Views
+  renderPassbookDesktopTable(data, filteredEntries, fmtLong);
+  renderPassbookMobileTimeline(data, filteredEntries, fmtLong);
+
+  // Show FAB for Payment Record
+  const fab = document.getElementById('passbookFabPayment');
+  if (fab) fab.style.display = isManagementRole(currentUser) ? 'flex' : 'none';
+}
+
+function setPassbookFilter(filter) {
+  passbookFilter = filter;
+
+  ['All', 'Charges', 'Payments', 'Adjustments'].forEach(f => {
+    const el = document.getElementById('pbChip' + f);
+    if (el) el.classList.toggle('active', f.toLowerCase() === filter);
+  });
+
+  renderPassbookStatement();
+}
+
+// ── Render Desktop Passbook Table ─────────────────────────────────
+function renderPassbookDesktopTable(data, filteredEntries, fmtLong) {
+  const tbody = document.getElementById('passbookTableBody');
+  if (!tbody) return;
+
+  const balanceCell = (bal) => {
+    if (bal <= 0) {
+      return `<strong class="text-emerald">${formatINR(0)}</strong><br><small style="color:var(--accent-success);font-size:0.72rem;font-weight:600;">✓ Cleared</small>`;
+    }
+    return `<strong class="text-rose">${formatINR(bal)}</strong><br><small style="color:var(--accent-danger);font-size:0.72rem;font-weight:600;">Due</small>`;
+  };
+
+  let html = '';
+
+  // Include Opening Balance if showing ALL or CHARGES
+  if (passbookFilter === 'all' || passbookFilter === 'charges') {
+    html += `
+      <tr style="background: rgba(245, 158, 11, 0.06);">
+        <td><strong>${fmtLong(data.from_date)}</strong></td>
+        <td><span class="pb-badge pb-badge-opening">🟡 Opening Balance</span></td>
+        <td><strong>Opening Balance carried forward as on ${fmtLong(data.from_date)}</strong></td>
+        <td style="color:var(--text-muted);text-align:right;">–</td>
+        <td style="color:var(--text-muted);text-align:right;">–</td>
+        <td style="color:var(--text-muted);text-align:right;">–</td>
+        <td style="text-align:right;">${balanceCell(data.previous_due_balance)}</td>
+      </tr>
+    `;
+  }
+
+  if (filteredEntries.length > 0) {
+    html += filteredEntries.map((item, idx) => {
+      const isDue = item.entry_type === 'DUE_IMPOSED';
+      const isPayment = item.entry_type === 'DUES_PAYMENT';
+      const isDonation = item.entry_type === 'DONATION_PAYMENT';
+      const itemId = `pbItem_${idx}_${item.id || item.date}`;
+      const isExpanded = expandedPassbookItemIds.has(itemId);
+
+      let badgeHtml, particularsHtml;
+      if (isDue) {
+        badgeHtml = `<span class="pb-badge pb-badge-charge">🔴 Charge Applied</span>`;
+        particularsHtml = `Event Fee – <strong>${item.description}</strong>`;
+      } else if (isPayment) {
+        badgeHtml = `<span class="pb-badge pb-badge-payment">🟢 Payment Received</span>`;
+        const receiptMatch = item.description.match(/^([^\s-][^\s]*(?:-[^\s]+)*)\s*-\s*/);
+        const receiptNo = receiptMatch ? receiptMatch[1] : (item.receipt_no || '');
+        const eventName = item.description.replace(/^[^-]+-\s*/, '').trim();
+        particularsHtml = `Payment for <strong>${eventName}</strong><br><small style="color:var(--text-muted);font-size:0.75rem;">Receipt: ${receiptNo || 'N/A'}</small>`;
+      } else if (isDonation) {
+        badgeHtml = `<span class="pb-badge pb-badge-payment">🟢 Donation</span>`;
+        particularsHtml = `Donation – ${item.description}`;
+      } else {
+        badgeHtml = `<span class="pb-badge pb-badge-adjustment">🔵 ${item.entry_type}</span>`;
+        particularsHtml = item.description;
+      }
+
+      const eventFeeCell = isDue && item.contribution_amount > 0
+        ? `<strong class="text-gold">${formatINR(item.contribution_amount)}</strong>`
+        : `<span style="color:var(--text-muted);">–</span>`;
+
+      return `
+        <tr class="passbook-row-expandable" onclick="togglePassbookItemExpand('${itemId}')">
+          <td style="white-space:nowrap;">${fmtLong(item.date)}</td>
+          <td>${badgeHtml}</td>
+          <td>${particularsHtml}</td>
+          <td style="text-align:right;">${eventFeeCell}</td>
+          <td style="text-align:right;" class="text-rose">${item.debit > 0 ? formatINR(item.debit) : '–'}</td>
+          <td style="text-align:right;" class="text-emerald">${item.credit > 0 ? formatINR(item.credit) : '–'}</td>
+          <td style="text-align:right;">${balanceCell(item.due_balance)}</td>
+        </tr>
+        ${isExpanded ? `
+          <tr class="passbook-row-detail">
+            <td colspan="7" style="padding:0;">
+              <div class="passbook-detail-box">
+                <div><strong>Transaction Date:</strong> ${fmtLong(item.date)}</div>
+                <div><strong>Type:</strong> ${item.entry_type}</div>
+                <div><strong>Description:</strong> ${item.description || '-'}</div>
+                ${item.receipt_no ? `<div><strong>Receipt No:</strong> ${item.receipt_no}</div>` : ''}
+                ${item.payment_mode ? `<div><strong>Payment Mode:</strong> ${item.payment_mode}</div>` : ''}
+                ${item.notes ? `<div><strong>Notes:</strong> ${item.notes}</div>` : ''}
+                ${isPayment && item.receipt_no ? `
+                  <div>
+                    <button class="btn btn-outline btn-sm" onclick="event.stopPropagation();viewPassbookReceipt('${item.receipt_no}')">
+                      📄 View Receipt
+                    </button>
+                  </div>
+                ` : ''}
+              </div>
+            </td>
+          </tr>
+        ` : ''}
+      `;
+    }).join('');
+  } else if (passbookFilter !== 'all' && passbookFilter !== 'charges') {
+    html = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:30px;">No ${passbookFilter} activity found in selected statement period.</td></tr>`;
+  }
+
+  tbody.innerHTML = html;
+}
+
+// ── Render Mobile Timeline View ───────────────────────────────────
+function renderPassbookMobileTimeline(data, filteredEntries, fmtLong) {
+  const container = document.getElementById('passbookMobileTimeline');
+  if (!container) return;
+
+  let html = '';
+
+  // Opening Balance Card (if ALL or CHARGES filter)
+  if (passbookFilter === 'all' || passbookFilter === 'charges') {
+    html += `
+      <div class="passbook-timeline-card type-opening">
+        <div class="passbook-card-header">
+          <span class="pb-badge pb-badge-opening">🟡 Opening Balance</span>
+          <span class="passbook-card-date">${fmtLong(data.from_date)}</span>
+        </div>
+        <div class="passbook-card-title">Opening Balance Carried Forward</div>
+        <div class="passbook-card-body">
+          <div>
+            <div style="font-size:0.7rem;color:var(--text-muted);">Carried Balance</div>
+            <div class="passbook-card-amount text-gold">${formatINR(data.previous_due_balance)}</div>
+          </div>
+          <div class="passbook-card-balance">
+            <div>Running Balance</div>
+            <strong style="color:var(--accent-gold);">${formatINR(data.previous_due_balance)}</strong>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  if (filteredEntries.length > 0) {
+    html += filteredEntries.map((item, idx) => {
+      const isDue = item.entry_type === 'DUE_IMPOSED';
+      const isPayment = item.entry_type === 'DUES_PAYMENT';
+      const isDonation = item.entry_type === 'DONATION_PAYMENT';
+      const itemId = `pbMob_${idx}_${item.id || item.date}`;
+      const isExpanded = expandedPassbookItemIds.has(itemId);
+
+      let cardTypeClass, badgeHtml, titleHtml, amountHtml;
+      if (isDue) {
+        cardTypeClass = 'type-charge';
+        badgeHtml = `<span class="pb-badge pb-badge-charge">🔴 Charge Applied</span>`;
+        titleHtml = item.description || 'Event Fee Charge';
+        amountHtml = `<span class="passbook-card-amount text-rose">- ${formatINR(item.debit)}</span>`;
+      } else if (isPayment) {
+        cardTypeClass = 'type-payment';
+        badgeHtml = `<span class="pb-badge pb-badge-payment">🟢 Payment Received</span>`;
+        titleHtml = item.description || 'Payment Credit';
+        amountHtml = `<span class="passbook-card-amount text-emerald">+ ${formatINR(item.credit)}</span>`;
+      } else if (isDonation) {
+        cardTypeClass = 'type-payment';
+        badgeHtml = `<span class="pb-badge pb-badge-payment">🟢 Donation</span>`;
+        titleHtml = item.description || 'Donation Credit';
+        amountHtml = `<span class="passbook-card-amount text-emerald">+ ${formatINR(item.credit)}</span>`;
+      } else {
+        cardTypeClass = 'type-adjust';
+        badgeHtml = `<span class="pb-badge pb-badge-adjustment">🔵 Adjustment</span>`;
+        titleHtml = item.description || 'Account Adjustment';
+        amountHtml = `<span class="passbook-card-amount">${formatINR(item.debit || item.credit || 0)}</span>`;
+      }
+
+      return `
+        <div class="passbook-timeline-card ${cardTypeClass}">
+          <div class="passbook-card-header">
+            ${badgeHtml}
+            <span class="passbook-card-date">${fmtLong(item.date)}</span>
+          </div>
+          <div class="passbook-card-title">${titleHtml}</div>
+          <div class="passbook-card-body">
+            <div>
+              <div style="font-size:0.7rem;color:var(--text-muted);">${isDue ? 'Debit Charge' : 'Credit Amount'}</div>
+              ${amountHtml}
+            </div>
+            <div class="passbook-card-balance">
+              <div>Due Balance</div>
+              <strong class="${item.due_balance > 0 ? 'text-rose' : 'text-emerald'}">${formatINR(item.due_balance)}</strong>
+            </div>
+          </div>
+          <div class="passbook-card-actions">
+            <button class="btn btn-outline btn-sm" onclick="togglePassbookItemExpand('${itemId}')" style="font-size:0.75rem;padding:4px 10px;">
+              ${isExpanded ? '▲ Hide Details' : '▼ More Details'}
+            </button>
+            ${isPayment ? `
+              <button class="btn btn-emerald btn-sm" onclick="viewPassbookReceipt('${item.receipt_no || ''}')" style="font-size:0.75rem;padding:4px 10px;">
+                📄 View Receipt
+              </button>
+            ` : ''}
+          </div>
+          ${isExpanded ? `
+            <div class="passbook-card-drawer">
+              <div><strong>Date:</strong> ${fmtLong(item.date)}</div>
+              <div><strong>Type:</strong> ${item.entry_type}</div>
+              ${item.receipt_no ? `<div><strong>Receipt No:</strong> ${item.receipt_no}</div>` : ''}
+              ${item.payment_mode ? `<div><strong>Payment Mode:</strong> ${item.payment_mode}</div>` : ''}
+              ${item.notes ? `<div><strong>Notes:</strong> ${item.notes}</div>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+  } else if (passbookFilter !== 'all' && passbookFilter !== 'charges') {
+    html = `
+      <div class="passbook-empty-state">
+        <div style="font-size: 2.5rem; margin-bottom: 8px;">📖</div>
+        <p style="color: var(--text-secondary); font-size: 0.9rem;">No ${passbookFilter} found in selected date range.</p>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
+function togglePassbookItemExpand(itemId) {
+  if (expandedPassbookItemIds.has(itemId)) {
+    expandedPassbookItemIds.delete(itemId);
+  } else {
+    expandedPassbookItemIds.add(itemId);
+  }
+  renderPassbookStatement();
+}
+
+function openQuickRecordPaymentForMember() {
+  if (!passbookCurrentData || !passbookCurrentData.member) {
+    showToast('Please select a member first', 'warning');
+    return;
+  }
+  const m = passbookCurrentData.member;
+  openTransactionModal();
+
+  // Pre-fill member selection in transaction modal
+  setTimeout(() => {
+    const txMemberSelect = document.getElementById('txMemberId');
+    if (txMemberSelect) txMemberSelect.value = m.id;
+    if (typeof txSearchSelectInstance !== 'undefined' && txSearchSelectInstance) {
+      txSearchSelectInstance.setValue(m.id);
+    }
+  }, 100);
+}
+
+function viewPassbookReceipt(receiptNo) {
+  if (!receiptNo) {
+    showToast('Receipt number not available', 'info');
+    return;
+  }
+  switchTab('transactions');
+  const txSearch = document.getElementById('txSearchInput');
+  if (txSearch) {
+    txSearch.value = receiptNo;
+    if (typeof onTxSearchInput === 'function') onTxSearchInput(receiptNo);
+    else if (typeof filterTransactionsTable === 'function') filterTransactionsTable();
+  }
+  showToast(`Filtered receipt: ${receiptNo}`, 'info');
+}
+
+
 
 // Download Passbook picture statement using html2canvas
 function downloadPassbookImage() {

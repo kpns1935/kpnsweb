@@ -556,17 +556,52 @@
         <button class="btn btn-emerald" onclick="openTransactionModal()">+ Record Payment / Donation</button>
       </div>
 
+      <!-- Search & Filter Toolbar Box -->
+      <div class="event-toolbar-container" style="margin-bottom: 14px;">
+        <div class="member-search-box" style="flex: 1; min-width: 280px;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="txSearchInput" placeholder="Search by Receipt No, Member Name, Member ID, Mobile..."
+                 oninput="onTxSearchInput(this.value)" autocomplete="off">
+        </div>
+        <div class="event-search-sort">
+          <select id="txSortSelect" onchange="setTxSort(this.value)"
+                  style="padding:8px 12px;border-radius:8px;background:rgba(30,41,59,0.7);border:1px solid var(--glass-border);color:var(--text-primary);cursor:pointer;font-size:0.85rem;">
+            <option value="date_desc">Newest First</option>
+            <option value="date_asc">Oldest First</option>
+            <option value="amount_desc">Amount (High to Low)</option>
+            <option value="receipt_asc">Receipt No A-Z</option>
+          </select>
+          <button id="txClearBtn" onclick="clearTxSearch()" class="btn btn-outline btn-sm" style="display:none;font-size:0.78rem;">✕ Clear</button>
+        </div>
+      </div>
+
+      <!-- Quick Filter Chips Row -->
+      <div class="filter-chips-row" style="margin-bottom: 18px;">
+        <div id="txChipAll" class="filter-chip active" onclick="setTxTypeFilter('all')">
+          All <span class="filter-chip-count" id="txCountAll">0</span>
+        </div>
+        <div id="txChipPayment" class="filter-chip" onclick="setTxTypeFilter('member_payment')">
+          🟢 Member Payments <span class="filter-chip-count" id="txCountPayment">0</span>
+        </div>
+        <div id="txChipDonation" class="filter-chip" onclick="setTxTypeFilter('member_donation')">
+          🟡 Member Donations <span class="filter-chip-count" id="txCountDonation">0</span>
+        </div>
+        <div id="txChipOutside" class="filter-chip" onclick="setTxTypeFilter('outside_donation')">
+          🔵 Outside Donations <span class="filter-chip-count" id="txCountOutside">0</span>
+        </div>
+      </div>
+
       <div class="table-responsive">
-        <table>
+        <table class="member-table-compact">
           <thead>
             <tr>
               <th>Receipt No</th>
               <th>Date</th>
               <th>Type</th>
-              <th>Member / Person Name</th>
+              <th>Member / Person Details</th>
               <th>Amount</th>
               <th>Mode</th>
-              <th>Actions</th>
+              <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody id="txTableBody">
@@ -605,73 +640,155 @@
     </section>
 
     <!-- PASSBOOK TAB -->
+    <!-- PASSBOOK STATEMENT TAB -->
     <section id="passbook" class="tab-content">
       <div class="section-header">
         <h2 class="section-title">📖 Member Passbook Statement</h2>
-        <button class="btn btn-outline" onclick="downloadPassbookImage()">🖼️ Download Passbook Picture</button>
+        <button class="btn btn-outline btn-sm" onclick="downloadPassbookImage()">🖼️ Download Picture</button>
       </div>
 
-      <div class="passbook-summary-box" style="align-items: flex-end;">
-        <div style="flex: 2;" class="form-group">
-          <label>Select Member:</label>
+      <!-- Search & Date Filter Bar -->
+      <div class="passbook-toolbar-box">
+        <div class="passbook-search-group">
+          <label class="form-label-sm">🔍 Search Member</label>
           <div id="passbookMemberSearchContainer"></div>
         </div>
-        <div class="form-group">
-          <label>From Date:</label>
-          <input type="date" id="passbookFromDate" class="form-control" onchange="loadPassbook()">
+        <div class="passbook-date-group">
+          <div>
+            <label class="form-label-sm">From Date</label>
+            <input type="date" id="passbookFromDate" class="form-control form-control-sm" onchange="loadPassbook()">
+          </div>
+          <div>
+            <label class="form-label-sm">To Date</label>
+            <input type="date" id="passbookToDate" class="form-control form-control-sm" onchange="loadPassbook()">
+          </div>
+          <button class="btn btn-sm" onclick="loadPassbook()" style="margin-top: auto;">Fetch Passbook</button>
         </div>
-        <div class="form-group">
-          <label>To Date:</label>
-          <input type="date" id="passbookToDate" class="form-control" onchange="loadPassbook()">
-        </div>
-        <button class="btn" onclick="loadPassbook()">Fetch Passbook</button>
       </div>
 
-      <!-- Passbook Statement Container (Capturable for PNG Download) -->
-      <div id="passbookRenderContainer" style="background: var(--bg-card); padding: 24px; border-radius: 12px; border: 1px solid var(--border-color);">
-        <div style="display: flex; justify-content: space-between; border-bottom: 2px solid var(--border-color); padding-bottom: 14px; margin-bottom: 16px;">
-          <div>
-            <h3 id="passbookMemberName" style="color: var(--accent-gold); font-size: 1.3rem;">Select a Member</h3>
-            <p id="passbookMemberCode" style="color: var(--text-secondary);">Code: - | Phone: -</p>
+      <!-- Sticky Top Balance Header for Mobile Scroll -->
+      <div id="passbookStickyHeader" class="passbook-sticky-bar" style="display: none;">
+        <div class="passbook-sticky-info">
+          <span class="passbook-sticky-name" id="pbStickyName">Member Name</span>
+          <span class="passbook-sticky-code" id="pbStickyCode">KPNS00</span>
+        </div>
+        <div class="passbook-sticky-due">
+          <span class="passbook-sticky-label">Current Due</span>
+          <span class="passbook-sticky-val" id="pbStickyDue">₹0</span>
+        </div>
+      </div>
+
+      <!-- Main Capturable Passbook Statement Container -->
+      <div id="passbookRenderContainer" class="passbook-container-card">
+
+        <!-- Stacked Member Profile Card Header -->
+        <div class="passbook-member-card">
+          <div class="passbook-avatar-block">
+            <div class="member-avatar-circle" id="pbMemberAvatar" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+              👤
+            </div>
+            <div class="passbook-member-meta">
+              <h3 id="passbookMemberName" class="passbook-member-title">Select a Member</h3>
+              <div class="passbook-member-tags" id="passbookMemberCode">
+                <span class="badge badge-secondary">Member ID: -</span>
+                <span class="badge badge-secondary">Phone: -</span>
+              </div>
+            </div>
           </div>
-          <div style="text-align: right;">
-            <p style="font-size: 0.85rem; color: var(--text-secondary);">Statement Period: <span id="passbookPeriodText">All Time</span></p>
-            <p style="font-size: 1.1rem; font-weight: 800; color: var(--accent-emerald);">KPNS ORGANIZATION</p>
+          <div class="passbook-period-block">
+            <span class="passbook-org-badge">KPNS ORGANIZATION</span>
+            <div class="passbook-period-text">
+              Statement Period: <span id="passbookPeriodText">All Time</span>
+            </div>
           </div>
         </div>
 
-        <div class="metrics-grid" style="margin-bottom: 16px;">
-          <div class="metric-card">
-            <span class="metric-title">Opening Balance</span>
-            <span class="metric-value" id="passbookPrevDue">₹0</span>
-            <span class="metric-sub">Balance carried forward from before selected period</span>
+        <!-- Balance Metrics Track (Horizontal Swipe on Mobile) -->
+        <div class="passbook-balance-track">
+          <div class="passbook-metric-card">
+            <div class="pb-metric-icon">🟡</div>
+            <div class="pb-metric-content">
+              <span class="pb-metric-lbl">Opening Balance</span>
+              <span class="pb-metric-val" id="passbookPrevDue">₹0</span>
+              <span class="pb-metric-sub">Carried Forward</span>
+            </div>
           </div>
-          <div class="metric-card emerald">
-            <span class="metric-title">Closing Due Balance</span>
-            <span class="metric-value text-emerald" id="passbookCurrentDue">₹0</span>
-            <span class="metric-sub">Current outstanding dues as on end date</span>
+          <div class="passbook-metric-card">
+            <div class="pb-metric-icon">🔴</div>
+            <div class="pb-metric-content">
+              <span class="pb-metric-lbl">Total Charges</span>
+              <span class="pb-metric-val text-rose" id="passbookTotalCharges">₹0</span>
+              <span class="pb-metric-sub">Imposed Dues</span>
+            </div>
+          </div>
+          <div class="passbook-metric-card">
+            <div class="pb-metric-icon">🟢</div>
+            <div class="pb-metric-content">
+              <span class="pb-metric-lbl">Total Paid</span>
+              <span class="pb-metric-val text-emerald" id="passbookTotalPaid">₹0</span>
+              <span class="pb-metric-sub">Received Credits</span>
+            </div>
+          </div>
+          <div class="passbook-metric-card highlight-due">
+            <div class="pb-metric-icon">⚠️</div>
+            <div class="pb-metric-content">
+              <span class="pb-metric-lbl">Closing Due Balance</span>
+              <span class="pb-metric-val text-gold" id="passbookCurrentDue">₹0</span>
+              <span class="pb-metric-sub">Current Outstanding</span>
+            </div>
           </div>
         </div>
 
-        <div class="table-responsive">
-          <table>
+        <!-- Quick Filter Chips -->
+        <div class="filter-chips-row passbook-filter-row">
+          <div id="pbChipAll" class="filter-chip active" onclick="setPassbookFilter('all')">
+            All <span class="filter-chip-count" id="pbCountAll">0</span>
+          </div>
+          <div id="pbChipCharges" class="filter-chip" onclick="setPassbookFilter('charges')">
+            🔴 Charges <span class="filter-chip-count" id="pbCountCharges">0</span>
+          </div>
+          <div id="pbChipPayments" class="filter-chip" onclick="setPassbookFilter('payments')">
+            🟢 Payments <span class="filter-chip-count" id="pbCountPayments">0</span>
+          </div>
+          <div id="pbChipAdjustments" class="filter-chip" onclick="setPassbookFilter('adjustments')">
+            🔵 Adjustments <span class="filter-chip-count" id="pbCountAdjustments">0</span>
+          </div>
+        </div>
+
+        <!-- Desktop Passbook Table View (>768px) -->
+        <div class="table-responsive passbook-desktop-view">
+          <table class="member-table-compact">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Transaction Type</th>
+                <th style="width: 120px;">Date</th>
+                <th style="width: 170px;">Type</th>
                 <th>Particulars</th>
-                <th>Event Fee</th>
-                <th>Charges (Debit)</th>
-                <th>Payments (Credit)</th>
-                <th>Balance</th>
+                <th style="text-align: right;">Event Fee</th>
+                <th style="text-align: right;">Debit (Charge)</th>
+                <th style="text-align: right;">Credit (Paid)</th>
+                <th style="text-align: right;">Balance</th>
               </tr>
             </thead>
             <tbody id="passbookTableBody">
-              <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Please select a member to view passbook.</td></tr>
+              <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px;">Please select a member to view passbook.</td></tr>
             </tbody>
           </table>
         </div>
+
+        <!-- Mobile Timeline View (<768px) -->
+        <div id="passbookMobileTimeline" class="passbook-mobile-timeline">
+          <div class="passbook-empty-state">
+            <div style="font-size: 2.5rem; margin-bottom: 8px;">📖</div>
+            <p style="color: var(--text-secondary); font-size: 0.9rem;">Please select a member above to view timeline statement.</p>
+          </div>
+        </div>
+
       </div>
+
+      <!-- Mobile Floating Action Button (FAB) -->
+      <button id="passbookFabPayment" class="passbook-fab" onclick="openQuickRecordPaymentForMember()" style="display: none;" title="Record Payment for Member">
+        💰 <span>Record Payment</span>
+      </button>
     </section>
 
     <!-- REPORTS TAB -->

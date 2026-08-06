@@ -596,115 +596,314 @@ async function loadMembersData() {
   }
 }
 
-// ── MEMBER TABLE SEARCH & FILTER ─────────────────────────────────────────────
-let memberStatusFilter = 'all';
+// ── MEMBER TABLE SAAS STATE & ENGINE ──────────────────────────────────────────
+let memberStatusFilter = 'all'; // 'all', 'active', 'inactive', 'outstanding', 'nodue'
+let memberSortKey = 'name';     // 'name', 'code', 'due_desc', 'date_desc'
+let memberCurrentPage = 1;
+let memberRowsPerPage = 20;
+let selectedMemberIds = new Set();
+let expandedMemberIds = new Set();
+
+// Avatar Initials & HSL Color Generator
+function getMemberInitials(name) {
+  if (!name) return 'M';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getAvatarColor(name) {
+  if (!name) return 'linear-gradient(135deg, #3B82F6, #1D4ED8)';
+  const colors = [
+    'linear-gradient(135deg, #3B82F6, #1D4ED8)', // Blue
+    'linear-gradient(135deg, #10B981, #047857)', // Emerald
+    'linear-gradient(135deg, #F59E0B, #B45309)', // Amber
+    'linear-gradient(135deg, #8B5CF6, #6D28D9)', // Purple
+    'linear-gradient(135deg, #EC4899, #BE185D)', // Pink
+    'linear-gradient(135deg, #06B6D4, #0E7490)', // Cyan
+    'linear-gradient(135deg, #6366F1, #4338CA)', // Indigo
+    'linear-gradient(135deg, #F43F5E, #BE123C)'  // Rose
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// Update Top Executive Metrics
+function updateMemberMetrics() {
+  const total = membersList.length;
+  const active = membersList.filter(m => (m.member_status || 'Active').toUpperCase() === 'ACTIVE').length;
+  const inactive = membersList.filter(m => (m.member_status || 'Active').toUpperCase() === 'INACTIVE').length;
+  const totalDues = membersList.reduce((acc, m) => acc + (parseFloat(m.current_due_balance) || 0), 0);
+
+  const elTotal = document.getElementById('mMetricTotalCount');
+  const elActive = document.getElementById('mMetricActiveCount');
+  const elInactive = document.getElementById('mMetricInactiveCount');
+  const elDues = document.getElementById('mMetricTotalDues');
+
+  if (elTotal) elTotal.textContent = total;
+  if (elActive) elActive.textContent = active;
+  if (elInactive) elInactive.textContent = inactive;
+  if (elDues) elDues.textContent = formatINR(totalDues);
+}
 
 function setMemberStatusFilter(status) {
   memberStatusFilter = status;
+  memberCurrentPage = 1;
 
-  // Update button active states
-  ['all', 'active', 'inactive'].forEach(s => {
-    const btn = document.getElementById('mFilter' + s.charAt(0).toUpperCase() + s.slice(1));
-    if (!btn) return;
-    if (s === status) {
-      btn.classList.remove('btn-outline');
-      btn.classList.add('btn-sm');
-    } else {
-      btn.classList.add('btn-outline');
-    }
+  const chips = ['all', 'active', 'inactive', 'outstanding', 'nodue'];
+  chips.forEach(c => {
+    const chipId = 'mChip' + c.charAt(0).toUpperCase() + c.slice(1);
+    const chip = document.getElementById(chipId);
+    if (!chip) return;
+    if (c === status) chip.classList.add('active');
+    else chip.classList.remove('active');
   });
 
   filterMembersTable();
 }
 
+function setMemberSort(sortKey) {
+  memberSortKey = sortKey;
+  memberCurrentPage = 1;
+  filterMembersTable();
+}
+
 function filterMembersTable() {
+  updateMemberMetrics();
+
   const rawQuery = (document.getElementById('memberSearchInput')?.value || '').trim().toLowerCase();
   const clearBtn = document.getElementById('memberSearchClearBtn');
-  const countEl  = document.getElementById('memberSearchCount');
 
-  if (clearBtn) clearBtn.style.display = rawQuery ? 'inline-flex' : 'none';
+  if (clearBtn) clearBtn.style.display = (rawQuery || memberStatusFilter !== 'all') ? 'inline-flex' : 'none';
+
+  // Compute live filter chip counts
+  const countAll = membersList.length;
+  const countActive = membersList.filter(m => (m.member_status || 'Active').toUpperCase() === 'ACTIVE').length;
+  const countInactive = membersList.filter(m => (m.member_status || 'Active').toUpperCase() === 'INACTIVE').length;
+  const countOutstanding = membersList.filter(m => parseFloat(m.current_due_balance || 0) > 0).length;
+  const countNoDue = membersList.filter(m => parseFloat(m.current_due_balance || 0) <= 0).length;
+
+  if (document.getElementById('mCountAll')) document.getElementById('mCountAll').textContent = countAll;
+  if (document.getElementById('mCountActive')) document.getElementById('mCountActive').textContent = countActive;
+  if (document.getElementById('mCountInactive')) document.getElementById('mCountInactive').textContent = countInactive;
+  if (document.getElementById('mCountOutstanding')) document.getElementById('mCountOutstanding').textContent = countOutstanding;
+  if (document.getElementById('mCountNoDue')) document.getElementById('mCountNoDue').textContent = countNoDue;
 
   // Filter members list
   let filtered = membersList.filter(m => {
-    // Status filter
     const status = (m.member_status || 'Active').toLowerCase();
-    if (memberStatusFilter === 'active'   && status !== 'active')   return false;
-    if (memberStatusFilter === 'inactive' && status !== 'inactive') return false;
+    const dueBal = parseFloat(m.current_due_balance || 0);
 
-    // Text search
+    if (memberStatusFilter === 'active' && status !== 'active') return false;
+    if (memberStatusFilter === 'inactive' && status !== 'inactive') return false;
+    if (memberStatusFilter === 'outstanding' && dueBal <= 0) return false;
+    if (memberStatusFilter === 'nodue' && dueBal > 0) return false;
+
     if (!rawQuery) return true;
     return (
-      (m.member_code         || '').toLowerCase().includes(rawQuery) ||
-      (m.name                || '').toLowerCase().includes(rawQuery) ||
-      (m.father_name         || '').toLowerCase().includes(rawQuery) ||
-      (m.phone               || '').toLowerCase().includes(rawQuery) ||
-      (m.alternative_number  || '').toLowerCase().includes(rawQuery) ||
-      (m.email               || '').toLowerCase().includes(rawQuery) ||
-      (m.aadhaar_number      || '').toLowerCase().includes(rawQuery) ||
-      (m.address             || '').toLowerCase().includes(rawQuery) ||
-      (m.form_no             || '').toLowerCase().includes(rawQuery)
+      (m.member_code || '').toLowerCase().includes(rawQuery) ||
+      (m.name || '').toLowerCase().includes(rawQuery) ||
+      (m.father_name || '').toLowerCase().includes(rawQuery) ||
+      (m.phone || '').toLowerCase().includes(rawQuery) ||
+      (m.alternative_number || '').toLowerCase().includes(rawQuery) ||
+      (m.email || '').toLowerCase().includes(rawQuery) ||
+      (m.aadhaar_number || '').toLowerCase().includes(rawQuery) ||
+      (m.address || '').toLowerCase().includes(rawQuery) ||
+      (m.form_no || '').toLowerCase().includes(rawQuery)
     );
   });
 
-  // Update count display
-  if (countEl) {
-    if (rawQuery || memberStatusFilter !== 'all') {
-      countEl.textContent = `${filtered.length} of ${membersList.length} members`;
+  // Sort list
+  filtered.sort((a, b) => {
+    if (memberSortKey === 'name') return (a.name || '').localeCompare(b.name || '');
+    if (memberSortKey === 'code') return (a.member_code || '').localeCompare(b.member_code || '');
+    if (memberSortKey === 'due_desc') return (parseFloat(b.current_due_balance || 0) - parseFloat(a.current_due_balance || 0));
+    if (memberSortKey === 'date_desc') return new Date(b.date_of_admission || 0) - new Date(a.date_of_admission || 0);
+    return 0;
+  });
+
+  // Pagination
+  const totalCount = filtered.length;
+  const rowsPerPage = parseInt(memberRowsPerPage, 10);
+  const totalPages = Math.ceil(totalCount / rowsPerPage) || 1;
+
+  if (memberCurrentPage > totalPages) memberCurrentPage = totalPages;
+  if (memberCurrentPage < 1) memberCurrentPage = 1;
+
+  const startIndex = (memberCurrentPage - 1) * rowsPerPage;
+  const pageItems = filtered.slice(startIndex, startIndex + rowsPerPage);
+
+  // Render Desktop Table Body (#membersTableBody)
+  const tbody = document.getElementById('membersTableBody');
+  const cardGrid = document.getElementById('membersCardGrid');
+
+  if (tbody) {
+    if (pageItems.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center;padding:48px 20px;color:var(--text-muted);">
+            <div style="font-size:2rem;margin-bottom:10px;">👥</div>
+            <div style="font-weight:700;font-size:1.05rem;color:var(--text-primary);margin-bottom:4px;">No members found.</div>
+            <div style="font-size:0.85rem;margin-bottom:14px;">Try adjusting your search criteria or filter chips.</div>
+            <button class="btn btn-sm" onclick="showAddMemberModal()">+ Add Member</button>
+          </td>
+        </tr>`;
     } else {
-      countEl.textContent = `${membersList.length} members`;
+      tbody.innerHTML = pageItems.map(m => {
+        const isSelected = selectedMemberIds.has(m.id);
+        const isExpanded = expandedMemberIds.has(m.id);
+        const dueBal = parseFloat(m.current_due_balance || 0);
+        const initials = getMemberInitials(m.name);
+        const bgGradient = getAvatarColor(m.name);
+        const isActive = (m.member_status || 'Active').toUpperCase() === 'ACTIVE';
+
+        return `
+          <tr class="member-row-main ${isSelected ? 'selected' : ''}">
+            <td style="text-align:center;">
+              <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelectMember(${m.id})" style="accent-color:var(--accent-primary);cursor:pointer;">
+            </td>
+            <td>
+              <div class="member-cell-info">
+                <div class="member-avatar-circle" style="background:${bgGradient};">${initials}</div>
+                <div class="member-name-wrap">
+                  <span class="member-name-clickable" onclick="openMemberProfileDrawer(${m.id})">${highlight(m.name, rawQuery)}</span>
+                  <div class="member-sub-details">
+                    <strong class="text-gold">${highlight(m.member_code, rawQuery)}</strong>
+                    ${m.form_no ? `· <span>Form: ${highlight(m.form_no, rawQuery)}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <div style="font-size:0.84rem;color:var(--text-primary);">📞 ${highlight(cleanNumber(m.phone), rawQuery)}</div>
+              ${m.email ? `<div style="font-size:0.75rem;color:var(--text-muted);">✉️ ${highlight(m.email, rawQuery)}</div>` : ''}
+            </td>
+            <td>
+              <span class="badge ${isActive ? 'badge-completed' : 'badge-pending'}"
+                    style="${isManagementRole(currentUser) ? 'cursor:pointer;' : ''}"
+                    onclick="toggleMemberStatus(${m.id}, '${m.member_status || 'Active'}')"
+                    title="${isManagementRole(currentUser) ? 'Click to toggle status' : ''}">
+                ${isActive ? '🟢 ACTIVE' : '🔴 INACTIVE'}
+              </span>
+            </td>
+            <td>
+              ${dueBal > 0
+                ? `<div><span class="badge badge-pending" style="background:rgba(239,68,68,0.15);color:#F87171;font-weight:700;">🔴 ${formatINR(dueBal)}</span><br><small style="font-size:0.7rem;color:var(--text-muted);">Outstanding</small></div>`
+                : `<span class="badge badge-completed" style="background:rgba(34,197,94,0.15);color:#34D399;font-weight:600;">✓ No Due</span>`
+              }
+            </td>
+            <td>
+              <div class="action-btn-group" style="justify-content: flex-end;">
+                <button class="icon-action-btn" onclick="openPassbookForMember(${m.id})" title="View Passbook Statement">📒</button>
+                <button class="icon-action-btn" onclick="openTransactionModal({memberId: ${m.id}})" title="Record Payment">💰</button>
+                <button class="icon-action-btn" onclick="toggleMemberRowExpand(${m.id})" title="Toggle Details Sub-Card">
+                  ${isExpanded ? '▲' : '▼'}
+                </button>
+
+                <div class="action-dropdown-wrapper">
+                  <button class="icon-action-btn" onclick="toggleActionDropdown(${m.id}, event)" title="More Actions">⋮</button>
+                  <div class="action-dropdown-menu" id="mDropdown_${m.id}">
+                    <button class="dropdown-action-item" onclick="openMemberProfileDrawer(${m.id})">👤 View Profile</button>
+                    <button class="dropdown-action-item" onclick="openPassbookForMember(${m.id})">📖 Passbook Statement</button>
+                    <button class="dropdown-action-item" onclick="openTransactionModal({memberId: ${m.id}})">💰 Record Payment</button>
+                    ${isManagementRole(currentUser) ? `
+                      <button class="dropdown-action-item" onclick="openMemberDuesModal(${m.id})">📋 View Dues</button>
+                      <button class="dropdown-action-item" onclick="openImposeDueModal(${m.id})">⚡ Impose Contribution</button>
+                      <button class="dropdown-action-item" onclick="editMember(${m.id})">✏️ Edit Details</button>
+                      <div style="border-top:1px solid var(--glass-border);margin:4px 0;"></div>
+                      <button class="dropdown-action-item danger" onclick="deleteMember(${m.id})">🗑️ Delete Member</button>
+                    ` : ''}
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Expandable Sub-Row Accordion -->
+          <tr class="member-row-expand ${isExpanded ? 'show' : ''}" id="mExpandRow_${m.id}">
+            <td colspan="6" style="padding: 0 14px 10px 14px; border: none;">
+              <div class="member-expand-card">
+                <div class="expand-info-item">
+                  <span class="expand-info-label">Father's Name</span>
+                  <span class="expand-info-val">${m.father_name || 'N/A'}</span>
+                </div>
+                <div class="expand-info-item">
+                  <span class="expand-info-label">Date of Admission</span>
+                  <span class="expand-info-val">${formatDate(m.date_of_admission)}</span>
+                </div>
+                <div class="expand-info-item">
+                  <span class="expand-info-label">Date of Birth</span>
+                  <span class="expand-info-val">${formatDate(m.dob)}</span>
+                </div>
+                <div class="expand-info-item">
+                  <span class="expand-info-label">Blood Group</span>
+                  <span class="expand-info-val"><span class="badge badge-partial">${m.blood_group || 'O+'}</span></span>
+                </div>
+                <div class="expand-info-item">
+                  <span class="expand-info-label">Aadhaar Number</span>
+                  <span class="expand-info-val">${cleanNumber(m.aadhaar_number)}</span>
+                </div>
+                <div class="expand-info-item">
+                  <span class="expand-info-label">Alt Mobile</span>
+                  <span class="expand-info-val">${cleanNumber(m.alternative_number)}</span>
+                </div>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }
   }
 
-  // Re-render tbody with filtered results
-  const tbody = document.getElementById('membersTableBody');
-  if (!tbody) return;
+  // Render Mobile Cards Grid (#membersCardGrid)
+  if (cardGrid) {
+    if (pageItems.length === 0) {
+      cardGrid.innerHTML = `<div style="grid-column: 1/-1; text-align:center; padding:32px; color:var(--text-muted);">No members found.</div>`;
+    } else {
+      cardGrid.innerHTML = pageItems.map(m => {
+        const dueBal = parseFloat(m.current_due_balance || 0);
+        const initials = getMemberInitials(m.name);
+        const bgGradient = getAvatarColor(m.name);
+        const isActive = (m.member_status || 'Active').toUpperCase() === 'ACTIVE';
 
-  if (filtered.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="13" style="text-align:center;padding:32px;color:var(--text-muted);">
-          <div style="font-size:1.5rem;margin-bottom:8px;">🔍</div>
-          <div style="font-weight:600;color:var(--text-primary);margin-bottom:4px;">No members found.</div>
-          <div style="font-size:0.85rem;">Try a different search term or clear the filter.</div>
-        </td>
-      </tr>`;
-    return;
+        return `
+          <div class="member-mobile-card">
+            <div class="mobile-card-top">
+              <div class="member-avatar-circle" style="background:${bgGradient};">${initials}</div>
+              <div style="flex:1;min-width:0;">
+                <div class="member-name-clickable" onclick="openMemberProfileDrawer(${m.id})">${m.name}</div>
+                <div style="font-size:0.75rem;color:var(--text-muted);">ID: <strong class="text-gold">${m.member_code}</strong> · Form: ${m.form_no || '-'}</div>
+              </div>
+              <span class="badge ${isActive ? 'badge-completed' : 'badge-pending'}" style="font-size:0.68rem;">
+                ${isActive ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.82rem;padding:6px 0;">
+              <div>📞 ${cleanNumber(m.phone)}</div>
+              <div>
+                ${dueBal > 0
+                  ? `<span style="color:#F87171;font-weight:700;">🔴 ${formatINR(dueBal)}</span>`
+                  : `<span style="color:#34D399;font-weight:600;">✓ No Due</span>`
+                }
+              </div>
+            </div>
+            <div class="mobile-card-actions">
+              <button class="btn btn-outline btn-sm" style="flex:1;" onclick="openPassbookForMember(${m.id})">📒 Passbook</button>
+              <button class="btn btn-emerald btn-sm" style="flex:1;" onclick="openTransactionModal({memberId: ${m.id}})">💰 Payment</button>
+              <button class="btn btn-outline btn-sm" onclick="openMemberProfileDrawer(${m.id})">⋮ More</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
   }
 
-  tbody.innerHTML = filtered.map(m => `
-    <tr>
-      <td><strong class="text-gold">${highlight(m.form_no || '-', rawQuery)}</strong></td>
-      <td><strong>${highlight(m.member_code, rawQuery)}</strong></td>
-      <td><strong>${highlight(m.name, rawQuery)}</strong></td>
-      <td>${highlight(m.father_name || '-', rawQuery)}</td>
-      <td>${formatDate(m.date_of_admission)}</td>
-      <td>${highlight(cleanNumber(m.phone), rawQuery)}</td>
-      <td>${highlight(cleanNumber(m.aadhaar_number), rawQuery)}</td>
-      <td><span class="badge badge-partial">${m.blood_group || 'O+'}</span></td>
-      <td>${highlight(cleanNumber(m.alternative_number), rawQuery)}</td>
-      <td>${formatDate(m.dob)}</td>
-      <td>
-        <span class="badge ${m.member_status === 'Active' ? 'badge-completed' : 'badge-pending'}"
-              style="${isManagementRole(currentUser) ? 'cursor: pointer;' : 'cursor: default;'}"
-              onclick="toggleMemberStatus(${m.id}, '${m.member_status || 'Active'}')"
-              title="${isManagementRole(currentUser) ? 'Click to toggle status' : 'Status'}">
-          ${(m.member_status || 'Active').toUpperCase()}
-        </span>
-      </td>
-      <td class="${m.current_due_balance > 0 ? 'text-rose' : 'text-emerald'}"><strong>${formatINR(m.current_due_balance)}</strong></td>
-      <td>
-        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-          <button class="btn btn-outline btn-sm" onclick="openPassbookForMember(${m.id})">📖 Passbook</button>
-          ${isManagementRole(currentUser) ? `
-            <button class="btn btn-outline btn-sm" style="color:#60A5FA;border-color:rgba(96,165,250,0.4);" onclick="openMemberDuesModal(${m.id})">📋 Dues</button>
-            <button class="btn btn-outline btn-sm" style="color:#34D399;border-color:rgba(52,211,153,0.4);" onclick="openImposeDueModal(${m.id})">⚡ Impose</button>
-            <button class="btn btn-outline btn-sm" onclick="editMember(${m.id})">✏️ Edit</button>
-            <button class="btn btn-rose btn-sm" onclick="deleteMember(${m.id})">🗑️ Delete</button>
-          ` : ''}
-        </div>
-      </td>
-    </tr>
-  `).join('');
+  // Update Pagination Controls
+  renderMemberPagination(totalCount);
+  updateBulkActionBar();
 }
 
 function highlight(text, query) {
@@ -719,7 +918,249 @@ function clearMemberSearch() {
   const input = document.getElementById('memberSearchInput');
   if (input) input.value = '';
   setMemberStatusFilter('all');
+}
+
+// ── ROW EXPANSION & ACTION DROPDOWNS ─────────────────────────────────────────
+function toggleMemberRowExpand(id) {
+  if (expandedMemberIds.has(id)) {
+    expandedMemberIds.delete(id);
+  } else {
+    expandedMemberIds.add(id);
+  }
+  const subRow = document.getElementById(`mExpandRow_${id}`);
+  if (subRow) subRow.classList.toggle('show');
+}
+
+function toggleActionDropdown(id, event) {
+  if (event) event.stopPropagation();
+  const menu = document.getElementById(`mDropdown_${id}`);
+  if (!menu) return;
+  const isAlreadyShow = menu.classList.contains('show');
+  document.querySelectorAll('.action-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+  if (!isAlreadyShow) menu.classList.add('show');
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.action-dropdown-wrapper')) {
+    document.querySelectorAll('.action-dropdown-menu.show').forEach(m => m.classList.remove('show'));
+  }
+});
+
+// ── MEMBER PROFILE DRAWER ────────────────────────────────────────────────────
+async function openMemberProfileDrawer(memberId) {
+  const member = membersList.find(m => m.id == memberId);
+  if (!member) return;
+
+  const backdrop = document.getElementById('memberDrawerBackdrop');
+  const panel = document.getElementById('memberProfileDrawer');
+  const body = document.getElementById('memberDrawerBody');
+
+  if (backdrop) backdrop.classList.add('active');
+  if (panel) panel.classList.add('open');
+
+  const initials = getMemberInitials(member.name);
+  const bgGradient = getAvatarColor(member.name);
+  const dueBal = parseFloat(member.current_due_balance || 0);
+
+  if (body) {
+    body.innerHTML = `
+      <div class="drawer-profile-top">
+        <div class="drawer-avatar" style="background:${bgGradient};">${initials}</div>
+        <div style="flex:1;min-width:0;">
+          <h2 style="margin:0;font-size:1.2rem;color:var(--text-primary);font-weight:700;">${member.name}</h2>
+          <div style="font-size:0.82rem;color:var(--text-secondary);margin-top:2px;">
+            Member ID: <strong class="text-gold">${member.member_code}</strong> · Form: <strong>${member.form_no || '-'}</strong>
+          </div>
+          <div style="margin-top:6px;">
+            <span class="badge ${member.member_status === 'Active' ? 'badge-completed' : 'badge-pending'}">
+              ${(member.member_status || 'Active').toUpperCase()}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Financial Overview Card -->
+      <div style="background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <div style="font-size:0.75rem;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Outstanding Dues</div>
+          <div style="font-size:1.3rem;font-weight:800;" class="${dueBal > 0 ? 'text-rose' : 'text-emerald'}">
+            ${dueBal > 0 ? `🔴 ${formatINR(dueBal)}` : '✓ Cleared (₹0)'}
+          </div>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="openMemberDuesModal(${member.id})">📋 View Dues</button>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="drawer-quick-actions">
+        <button class="btn btn-emerald btn-sm" style="flex:1;" onclick="openTransactionModal({memberId: ${member.id}})">💰 Record Payment</button>
+        <button class="btn btn-outline btn-sm" style="flex:1;" onclick="openPassbookForMember(${member.id})">📖 Passbook</button>
+        ${isManagementRole(currentUser) ? `
+          <button class="btn btn-outline btn-sm" onclick="openImposeDueModal(${member.id})">⚡ Impose</button>
+          <button class="btn btn-outline btn-sm" onclick="editMember(${member.id})">✏️ Edit</button>
+        ` : ''}
+      </div>
+
+      <!-- Full Personal Details Grid -->
+      <div>
+        <h4 style="font-size:0.85rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">Personal Details</h4>
+        <div class="drawer-grid-details">
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Father's Name</span><br><strong style="font-size:0.85rem;">${member.father_name || 'N/A'}</strong></div>
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Admission Date</span><br><strong style="font-size:0.85rem;">${formatDate(member.date_of_admission)}</strong></div>
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Mobile Number</span><br><strong style="font-size:0.85rem;">${cleanNumber(member.phone)}</strong></div>
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Alt Mobile</span><br><strong style="font-size:0.85rem;">${cleanNumber(member.alternative_number)}</strong></div>
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Aadhaar Number</span><br><strong style="font-size:0.85rem;">${cleanNumber(member.aadhaar_number)}</strong></div>
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Blood Group</span><br><strong style="font-size:0.85rem;"><span class="badge badge-partial">${member.blood_group || 'O+'}</span></strong></div>
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Date of Birth</span><br><strong style="font-size:0.85rem;">${formatDate(member.dob)}</strong></div>
+          <div><span style="color:var(--text-muted);font-size:0.75rem;">Email Address</span><br><strong style="font-size:0.85rem;">${member.email || 'N/A'}</strong></div>
+          <div style="grid-column: 1/-1;"><span style="color:var(--text-muted);font-size:0.75rem;">Address</span><br><strong style="font-size:0.85rem;">${member.address || 'N/A'}</strong></div>
+        </div>
+      </div>
+    `;
+  }
+}
+
+function closeMemberProfileDrawer() {
+  const backdrop = document.getElementById('memberDrawerBackdrop');
+  const panel = document.getElementById('memberProfileDrawer');
+  if (backdrop) backdrop.classList.remove('active');
+  if (panel) panel.classList.remove('open');
+}
+
+// ── BULK SELECTION ENGINE ────────────────────────────────────────────────────
+function toggleSelectAllMembers(checked) {
+  if (checked) {
+    membersList.forEach(m => selectedMemberIds.add(m.id));
+  } else {
+    selectedMemberIds.clear();
+  }
   filterMembersTable();
+}
+
+function toggleSelectMember(id) {
+  if (selectedMemberIds.has(id)) {
+    selectedMemberIds.delete(id);
+  } else {
+    selectedMemberIds.add(id);
+  }
+  filterMembersTable();
+}
+
+function clearMemberSelections() {
+  selectedMemberIds.clear();
+  const selectAllCb = document.getElementById('selectAllMembersCb');
+  if (selectAllCb) selectAllCb.checked = false;
+  filterMembersTable();
+}
+
+function updateBulkActionBar() {
+  const bar = document.getElementById('memberBulkActionBar');
+  const countEl = document.getElementById('bulkSelectedCount');
+  const selectAllCb = document.getElementById('selectAllMembersCb');
+
+  if (countEl) countEl.textContent = `${selectedMemberIds.size} selected`;
+
+  if (selectedMemberIds.size > 0) {
+    if (bar) bar.classList.add('show');
+  } else {
+    if (bar) bar.classList.remove('show');
+    if (selectAllCb) selectAllCb.checked = false;
+  }
+}
+
+async function executeBulkAction(action) {
+  if (selectedMemberIds.size === 0) {
+    showToast('Please select at least one member.', 'info');
+    return;
+  }
+
+  const ids = Array.from(selectedMemberIds);
+
+  if (action === 'impose') {
+    openImposeDueModal(ids[0]);
+  } else if (action === 'activate') {
+    if (!confirm(`Activate ${ids.length} selected member(s)?`)) return;
+    for (const id of ids) {
+      await fetch(`/api/members/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Active' })
+      });
+    }
+    showToast(`Activated ${ids.length} member(s).`, 'success');
+    clearMemberSelections();
+    loadMembersData();
+  } else if (action === 'deactivate') {
+    if (!confirm(`Deactivate ${ids.length} selected member(s)?`)) return;
+    for (const id of ids) {
+      await fetch(`/api/members/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Inactive' })
+      });
+    }
+    showToast(`Deactivated ${ids.length} member(s).`, 'success');
+    clearMemberSelections();
+    loadMembersData();
+  } else if (action === 'export') {
+    const selectedList = membersList.filter(m => selectedMemberIds.has(m.id));
+    exportMembersList(selectedList);
+  } else if (action === 'delete') {
+    if (!confirm(`⚠️ Delete ${ids.length} selected member(s)? This action cannot be undone.`)) return;
+    for (const id of ids) {
+      await fetch(`/api/members/${id}`, { method: 'DELETE' });
+    }
+    showToast(`Deleted ${ids.length} member(s).`, 'success');
+    clearMemberSelections();
+    loadMembersData();
+  }
+}
+
+// ── PAGINATION CONTROLS ──────────────────────────────────────────────────────
+function changeMemberRowsPerPage(size) {
+  memberRowsPerPage = parseInt(size, 10);
+  memberCurrentPage = 1;
+  filterMembersTable();
+}
+
+function changeMemberPage(page) {
+  memberCurrentPage = page;
+  filterMembersTable();
+}
+
+function renderMemberPagination(totalCount) {
+  const rowsPerPage = parseInt(memberRowsPerPage, 10);
+  const totalPages = Math.ceil(totalCount / rowsPerPage) || 1;
+  const start = totalCount === 0 ? 0 : (memberCurrentPage - 1) * rowsPerPage + 1;
+  const end = Math.min(memberCurrentPage * rowsPerPage, totalCount);
+
+  const infoEl = document.getElementById('memberPaginationInfo');
+  const btnEl = document.getElementById('memberPaginationButtons');
+
+  if (infoEl) {
+    infoEl.textContent = `Showing ${start}–${end} of ${totalCount} members`;
+  }
+
+  if (btnEl) {
+    let btnsHtml = `
+      <button class="page-btn" ${memberCurrentPage === 1 ? 'disabled' : ''} onclick="changeMemberPage(${memberCurrentPage - 1})">‹ Prev</button>
+    `;
+
+    for (let p = 1; p <= totalPages; p++) {
+      if (p === 1 || p === totalPages || (p >= memberCurrentPage - 1 && p <= memberCurrentPage + 1)) {
+        btnsHtml += `
+          <button class="page-btn ${p === memberCurrentPage ? 'active' : ''}" onclick="changeMemberPage(${p})">${p}</button>
+        `;
+      } else if (p === memberCurrentPage - 2 || p === memberCurrentPage + 2) {
+        btnsHtml += `<span style="color:var(--text-muted);font-size:0.8rem;">…</span>`;
+      }
+    }
+
+    btnsHtml += `
+      <button class="page-btn" ${memberCurrentPage === totalPages ? 'disabled' : ''} onclick="changeMemberPage(${memberCurrentPage + 1})">Next ›</button>
+    `;
+
+    btnEl.innerHTML = btnsHtml;
+  }
 }
 
 // Global MemberSearchSelect instances
@@ -943,56 +1384,611 @@ async function seedSampleMembers() {
 }
 
 // 3. EVENTS MANAGEMENT
+// ══════════════════════════════════════════════════════════════
+// EVENTS SaaS ENGINE — State & Helpers
+// ══════════════════════════════════════════════════════════════
+
+let eventFilterChip = 'all';
+let eventSortKey = 'date_desc';
+let eventCurrentPage = 1;
+let eventRowsPerPage = 12;
+const selectedEventIds = new Set();
+
+function getEventIcon(title) {
+  const t = (title || '').toLowerCase();
+  if (t.includes('independence') || t.includes('republic') || t.includes('national')) return '🇮🇳';
+  if (t.includes('puja') || t.includes('saraswati') || t.includes('durga') || t.includes('kali') || t.includes('pooja')) return '🪔';
+  if (t.includes('development') || t.includes('fund') || t.includes('building') || t.includes('construction')) return '🏗️';
+  if (t.includes('foundation') || t.includes('anniversary') || t.includes('celebration')) return '🎉';
+  if (t.includes('flood') || t.includes('relief') || t.includes('disaster')) return '🆘';
+  if (t.includes('donation') || t.includes('charity')) return '💝';
+  if (t.includes('sports') || t.includes('game') || t.includes('tournament')) return '🏆';
+  if (t.includes('cultural') || t.includes('music') || t.includes('dance')) return '🎭';
+  if (t.includes('meeting') || t.includes('agm') || t.includes('general body')) return '📋';
+  return '🎯';
+}
+
+function getEventStatus(ev) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const eventDate = ev.event_date ? new Date(ev.event_date) : null;
+  if (eventDate) {
+    const daysUntil = Math.ceil((eventDate - today) / 86400000);
+    if (daysUntil > 1) return 'upcoming';
+  }
+  if (ev.total_expected > 0 && ev.total_collected >= ev.total_expected) return 'completed';
+  return 'active';
+}
+
+function getProgressClass(pct) {
+  if (pct >= 100) return 'pct-full';
+  if (pct >= 60)  return 'pct-high';
+  if (pct >= 25)  return 'pct-mid';
+  return 'pct-low';
+}
+
+// ── Filter + Sort Engine ─────────────────────────────────────────
+function filterSortEvents() {
+  if (!Array.isArray(eventsList)) return [];
+  const query = (document.getElementById('eventSearchInput')?.value || '').toLowerCase().trim();
+
+  let filtered = eventsList.filter(ev => {
+    const status = getEventStatus(ev);
+    const type   = ev.contribution_type || 'fixed';
+
+    if (eventFilterChip === 'active'    && status !== 'active')    return false;
+    if (eventFilterChip === 'upcoming'  && status !== 'upcoming')  return false;
+    if (eventFilterChip === 'completed' && status !== 'completed') return false;
+    if (eventFilterChip === 'fixed'     && type   !== 'fixed')     return false;
+    if (eventFilterChip === 'flexible'  && type   !== 'flexible')  return false;
+
+    if (query) {
+      const haystack = `${ev.title} ${ev.description || ''}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (eventSortKey === 'date_asc')        return new Date(a.event_date || 0) - new Date(b.event_date || 0);
+    if (eventSortKey === 'name')            return (a.title || '').localeCompare(b.title || '');
+    if (eventSortKey === 'outstanding_desc') return (b.total_pending || 0) - (a.total_pending || 0);
+    if (eventSortKey === 'progress') {
+      const pctA = a.total_expected > 0 ? (a.total_collected / a.total_expected) : 0;
+      const pctB = b.total_expected > 0 ? (b.total_collected / b.total_expected) : 0;
+      return pctB - pctA;
+    }
+    // date_desc (default)
+    return new Date(b.event_date || 0) - new Date(a.event_date || 0);
+  });
+
+  return filtered;
+}
+
+// ── Update Summary Metrics Bar ───────────────────────────────────
+function updateEventMetrics() {
+  if (!Array.isArray(eventsList)) return;
+
+  let totalExpected = 0, totalCollected = 0, totalOutstanding = 0;
+  let activeCount = 0, upcomingCount = 0;
+
+  eventsList.forEach(ev => {
+    const status = getEventStatus(ev);
+    if (status === 'active')   activeCount++;
+    if (status === 'upcoming') upcomingCount++;
+    totalExpected    += (parseFloat(ev.total_expected) || 0);
+    totalCollected   += (parseFloat(ev.total_collected) || 0);
+    totalOutstanding += (parseFloat(ev.total_pending)   || 0);
+  });
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('evMetricTotal',       eventsList.length);
+  set('evMetricActive',      activeCount);
+  set('evMetricUpcoming',    upcomingCount);
+  set('evMetricExpected',    formatINR(totalExpected));
+  set('evMetricCollected',   formatINR(totalCollected));
+  set('evMetricOutstanding', formatINR(totalOutstanding));
+}
+
+// ── Update Filter Chip Counts ────────────────────────────────────
+function updateEventChipCounts() {
+  if (!Array.isArray(eventsList)) return;
+
+  const counts = { all: eventsList.length, active: 0, upcoming: 0, completed: 0, fixed: 0, flexible: 0 };
+  eventsList.forEach(ev => {
+    const status = getEventStatus(ev);
+    const type   = ev.contribution_type || 'fixed';
+    if (counts[status] !== undefined) counts[status]++;
+    if (counts[type]   !== undefined) counts[type]++;
+  });
+
+  const chips = ['All','Active','Upcoming','Completed','Fixed','Flexible'];
+  chips.forEach(c => {
+    const el = document.getElementById('evCount' + c);
+    if (el) el.textContent = counts[c.toLowerCase()] ?? 0;
+  });
+}
+
+// ── Set Filter Chip ──────────────────────────────────────────────
+function setEventFilter(chip) {
+  eventFilterChip = chip;
+  eventCurrentPage = 1;
+
+  // Update active chip style
+  ['All','Active','Upcoming','Completed','Fixed','Flexible'].forEach(c => {
+    const el = document.getElementById('evChip' + c);
+    if (el) el.classList.toggle('active', c.toLowerCase() === chip);
+  });
+
+  // Update active metric card
+  document.querySelectorAll('.event-metric-card').forEach(card => {
+    card.classList.toggle('active-filter', card.dataset.filter === chip);
+  });
+
+  renderEventCards();
+}
+
+// ── Set Sort ─────────────────────────────────────────────────────
+function setEventSort(key) {
+  eventSortKey = key;
+  eventCurrentPage = 1;
+  renderEventCards();
+}
+
+// ── Debounced Search ─────────────────────────────────────────────
+function onEventSearchInput(val) {
+  eventCurrentPage = 1;
+  renderEventCards();
+}
+
+// ── Build & Render Event Cards ───────────────────────────────────
+function renderEventCards() {
+  const container = document.getElementById('eventCardsContainer');
+  if (!container) return;
+
+  const filtered = filterSortEvents();
+  const total    = filtered.length;
+  const start    = (eventCurrentPage - 1) * eventRowsPerPage;
+  const end      = Math.min(start + eventRowsPerPage, total);
+  const page     = filtered.slice(start, end);
+
+  // Update pagination info
+  const info = document.getElementById('eventPaginationInfo');
+  if (info) info.textContent = total === 0
+    ? 'No events found'
+    : `Showing ${start + 1}–${end} of ${total} events`;
+
+  // Build pagination buttons
+  buildEventPaginationButtons(Math.ceil(total / eventRowsPerPage));
+
+  if (page.length === 0) {
+    container.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text-muted);">
+        <div style="font-size:2.5rem;margin-bottom:12px;">🎯</div>
+        <div style="font-size:1rem;font-weight:600;color:var(--text-secondary);margin-bottom:6px;">No events found</div>
+        <div style="font-size:0.85rem;">Try adjusting your search or filter</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = page.map(ev => buildEventCardHTML(ev)).join('');
+}
+
+// ── Build a Single Event Card HTML ───────────────────────────────
+function buildEventCardHTML(ev) {
+  const status      = getEventStatus(ev);
+  const icon        = getEventIcon(ev.title);
+  const type        = ev.contribution_type || 'fixed';
+  const isFlexible  = type === 'flexible' || !Number(ev.contribution_amount);
+  const pct         = ev.total_expected > 0 ? Math.min(Math.round((ev.total_collected / ev.total_expected) * 100), 100) : 0;
+  const pctClass    = getProgressClass(pct);
+  const paid        = ev.member_count > 0 ? Math.round((ev.total_collected / (ev.contribution_amount || 1))) : 0;
+  const pending     = Math.max(ev.member_count - paid, 0);
+  const netBalance  = (ev.total_collected || 0) - (ev.total_expenses || 0);
+  const isSelected  = selectedEventIds.has(ev.id);
+
+  const statusBadge = {
+    active:    '<span class="ev-status-badge ev-status-active">🟢 Active</span>',
+    upcoming:  '<span class="ev-status-badge ev-status-upcoming">📅 Upcoming</span>',
+    completed: '<span class="ev-status-badge ev-status-completed">🔵 Completed</span>',
+    draft:     '<span class="ev-status-badge ev-status-draft">⚪ Draft</span>',
+  }[status] || '';
+
+  const typeBadge = isFlexible
+    ? '<span class="ev-type-badge ev-type-flexible">🌱 Flexible</span>'
+    : '<span class="ev-type-badge ev-type-fixed">📌 Fixed</span>';
+
+  const contributionLine = isFlexible
+    ? '<div class="ev-contribution-amount">Flexible contribution (no fixed amount)</div>'
+    : `<div class="ev-contribution-amount">₹${Number(ev.contribution_amount || 0).toLocaleString('en-IN')} per member</div>`;
+
+  const progressSection = ev.total_expected > 0 ? `
+    <div class="event-progress-wrap">
+      <div class="event-progress-row">
+        <span class="event-progress-label">Collection Progress</span>
+        <span class="event-progress-pct">${pct}%</span>
+      </div>
+      <div class="event-progress-bar">
+        <div class="event-progress-fill ${pctClass}" style="width:${pct}%"></div>
+      </div>
+      <div class="event-progress-amounts">${formatINR(ev.total_collected)} collected of ${formatINR(ev.total_expected)} expected</div>
+    </div>` : `
+    <div class="event-progress-wrap">
+      <div class="event-progress-row">
+        <span class="event-progress-label">Collection Progress</span>
+        <span class="event-progress-pct" style="color:var(--text-muted);">—</span>
+      </div>
+      <div class="event-progress-bar"><div class="event-progress-fill" style="width:0%"></div></div>
+      <div class="event-progress-amounts" style="color:var(--text-muted);">No dues imposed yet</div>
+    </div>`;
+
+  const mgmtActions = isManagementRole(currentUser) ? `
+    <div class="dropdown-item" onclick="editEvent(${ev.id});closeAllEventDropdowns()">✏️ Edit Event</div>
+    <div class="dropdown-item" onclick="viewEventPendingMembers(${ev.id});closeAllEventDropdowns()">👥 Pending Members</div>
+    <div class="dropdown-item text-rose" onclick="deleteEvent(${ev.id})">🗑️ Delete Event</div>
+  ` : '';
+
+  return `
+  <div class="event-card" id="evCard${ev.id}">
+    <!-- Header -->
+    <div class="event-card-header">
+      <input type="checkbox" class="event-select-cb" id="evCb${ev.id}"
+        ${isSelected ? 'checked' : ''} onchange="toggleSelectEvent(${ev.id}, this.checked)">
+      <div class="event-card-icon">${icon}</div>
+      <div class="event-card-title-block">
+        <div class="event-card-title" onclick="openEventDrawer(${ev.id})">${ev.title}</div>
+        <div class="event-card-date">📅 ${formatDate(ev.event_date)}</div>
+        ${contributionLine}
+        <div class="event-card-badges">
+          ${typeBadge}
+          ${statusBadge}
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    ${progressSection}
+
+    <!-- Member Stats -->
+    <div class="event-stats-row">
+      <div class="event-stat-cell">
+        <div class="event-stat-val">${ev.member_count}</div>
+        <div class="event-stat-lbl">Assigned</div>
+      </div>
+      <div class="event-stat-cell">
+        <div class="event-stat-val" style="color:#4ADE80;">${paid}</div>
+        <div class="event-stat-lbl">Paid</div>
+      </div>
+      <div class="event-stat-cell">
+        <div class="event-stat-val" style="color:#F87171;">${pending}</div>
+        <div class="event-stat-lbl">Pending</div>
+      </div>
+    </div>
+
+    <!-- Financial Summary -->
+    <div class="event-finance-row">
+      <div class="event-finance-item">
+        <div class="event-finance-val ev-expected-val">${formatINR(ev.total_expected)}</div>
+        <div class="event-finance-lbl">Expected</div>
+      </div>
+      <div class="event-finance-item">
+        <div class="event-finance-val ev-collected-val">${formatINR(ev.total_collected)}</div>
+        <div class="event-finance-lbl">Collected</div>
+      </div>
+      <div class="event-finance-item">
+        <div class="event-finance-val ev-expenses-val">${formatINR(ev.total_expenses)}</div>
+        <div class="event-finance-lbl">Expenses</div>
+      </div>
+      <div class="event-finance-item">
+        <div class="event-finance-val" style="color:${netBalance >= 0 ? '#4ADE80' : '#F87171'};">${formatINR(netBalance)}</div>
+        <div class="event-finance-lbl">Net Balance</div>
+      </div>
+    </div>
+
+    <!-- Footer Actions -->
+    <div class="event-card-footer">
+      <button class="btn btn-outline btn-sm" onclick="viewEventPendingMembers(${ev.id})">👥 Pending</button>
+      <button class="btn btn-sm btn-emerald" onclick="openEventReport(${ev.id})">📊 Report</button>
+      <div class="ev-action-more-wrap">
+        <button class="ev-more-btn" onclick="toggleEventCardDropdown(${ev.id}, event)" title="More actions">⋮</button>
+        <div class="event-dropdown-menu" id="evDropdown${ev.id}">
+          <div class="dropdown-item" onclick="openEventDrawer(${ev.id});closeAllEventDropdowns()">🔍 View Details</div>
+          <div class="dropdown-item" onclick="openEventReport(${ev.id})">📊 Report</div>
+          ${mgmtActions}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Pagination ───────────────────────────────────────────────────
+function buildEventPaginationButtons(totalPages) {
+  const container = document.getElementById('eventPaginationButtons');
+  if (!container) return;
+  if (totalPages <= 1) { container.innerHTML = ''; return; }
+
+  let html = `<button class="page-btn" onclick="changeEventPage(${eventCurrentPage - 1})" ${eventCurrentPage === 1 ? 'disabled' : ''}>‹ Prev</button>`;
+  for (let p = 1; p <= totalPages; p++) {
+    if (totalPages > 7 && p > 2 && p < totalPages - 1 && Math.abs(p - eventCurrentPage) > 1) {
+      if (p === 3 || p === totalPages - 2) html += `<span style="color:var(--text-muted);padding:0 4px;">…</span>`;
+      continue;
+    }
+    html += `<button class="page-btn ${p === eventCurrentPage ? 'active' : ''}" onclick="changeEventPage(${p})">${p}</button>`;
+  }
+  html += `<button class="page-btn" onclick="changeEventPage(${eventCurrentPage + 1})" ${eventCurrentPage === totalPages ? 'disabled' : ''}>Next ›</button>`;
+  container.innerHTML = html;
+}
+
+function changeEventPage(page) {
+  const filtered = filterSortEvents();
+  const totalPages = Math.ceil(filtered.length / eventRowsPerPage);
+  if (page < 1 || page > totalPages) return;
+  eventCurrentPage = page;
+  renderEventCards();
+  document.getElementById('events')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function changeEventRowsPerPage(n) {
+  eventRowsPerPage = parseInt(n) || 12;
+  eventCurrentPage = 1;
+  renderEventCards();
+}
+
+// ── Dropdown Menu Toggle ─────────────────────────────────────────
+function toggleEventCardDropdown(id, evt) {
+  if (evt) evt.stopPropagation();
+  closeAllEventDropdowns();
+  const menu = document.getElementById(`evDropdown${id}`);
+  if (menu) menu.classList.toggle('open');
+}
+
+function toggleEventBulkMenu() {
+  const menu = document.getElementById('eventBulkDropdown');
+  if (menu) menu.classList.toggle('open');
+}
+
+function closeAllEventDropdowns() {
+  document.querySelectorAll('.event-dropdown-menu.open').forEach(m => m.classList.remove('open'));
+}
+
+// Close dropdowns on outside click
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.ev-action-more-wrap') && !e.target.closest('#evBtnBulkActions')) {
+    closeAllEventDropdowns();
+  }
+});
+
+// ── Bulk Selection ───────────────────────────────────────────────
+function toggleSelectEvent(id, checked) {
+  if (checked) selectedEventIds.add(id);
+  else         selectedEventIds.delete(id);
+  updateEventBulkBar();
+}
+
+function clearEventSelection() {
+  selectedEventIds.clear();
+  document.querySelectorAll('.event-select-cb').forEach(cb => cb.checked = false);
+  updateEventBulkBar();
+}
+
+function updateEventBulkBar() {
+  const bar   = document.getElementById('eventBulkActionBar');
+  const count = document.getElementById('eventBulkCount');
+  const n     = selectedEventIds.size;
+  if (bar) bar.style.display = n > 0 ? 'flex' : 'none';
+  if (count) count.textContent = `${n} selected`;
+}
+
+function executeBulkEventAction(action) {
+  closeAllEventDropdowns();
+  if (action === 'export') {
+    const rows = Array.from(selectedEventIds).map(id => eventsList.find(e => e.id == id)).filter(Boolean);
+    if (!rows.length) { showToast('Select events to export', 'warning'); return; }
+    const csv = ['Title,Date,Type,Expected,Collected,Outstanding,Expenses']
+      .concat(rows.map(e => `"${e.title}","${e.event_date}","${e.contribution_type}","${e.total_expected}","${e.total_collected}","${e.total_pending}","${e.total_expenses}"`))
+      .join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv]));
+    a.download = 'events_export.csv'; a.click();
+    showToast(`Exported ${rows.length} events`, 'success');
+  } else if (action === 'delete') {
+    if (!isManagementRole(currentUser)) { showToast('No permission', 'error'); return; }
+    if (!selectedEventIds.size) { showToast('Select events to delete', 'warning'); return; }
+    if (!confirm(`Delete ${selectedEventIds.size} selected events? This cannot be undone.`)) return;
+    const ids = Array.from(selectedEventIds);
+    Promise.all(ids.map(id => fetch(`/api/events/${id}`, { method: 'DELETE' }).then(r => r.json())))
+      .then(results => {
+        const ok = results.filter(r => r.success).length;
+        showToast(`${ok} events deleted`, ok === ids.length ? 'success' : 'warning');
+        clearEventSelection();
+        loadEventsData();
+      });
+  } else if (action === 'archive') {
+    showToast('Archive feature coming soon', 'info');
+  }
+}
+
+// ── Export All Events ─────────────────────────────────────────────
+function exportEventsData() {
+  if (!Array.isArray(eventsList) || !eventsList.length) { showToast('No events to export', 'warning'); return; }
+  const csv = ['Title,Date,Type,Contribution,Expected,Collected,Outstanding,Expenses,Members']
+    .concat(eventsList.map(e => `"${e.title}","${e.event_date}","${e.contribution_type}","${e.contribution_amount || 0}","${e.total_expected}","${e.total_collected}","${e.total_pending}","${e.total_expenses}","${e.member_count}"`))
+    .join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv]));
+  a.download = `events_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  showToast('Events exported', 'success');
+}
+
+// ── Slide-In Event Drawer ────────────────────────────────────────
+async function openEventDrawer(eventId) {
+  const panel   = document.getElementById('eventDrawerPanel');
+  const overlay = document.getElementById('eventDrawerOverlay');
+  if (!panel) return;
+
+  // Set loading state
+  const ev = eventsList.find(e => e.id == eventId);
+  if (!ev) return;
+
+  document.getElementById('evDrawerIcon').textContent  = getEventIcon(ev.title);
+  document.getElementById('evDrawerTitle').textContent = ev.title;
+
+  const status      = getEventStatus(ev);
+  const isFlexible  = ev.contribution_type === 'flexible' || !Number(ev.contribution_amount);
+  const pct         = ev.total_expected > 0 ? Math.min(Math.round((ev.total_collected / ev.total_expected) * 100), 100) : 0;
+  const paid        = ev.contribution_amount > 0 ? Math.round(ev.total_collected / ev.contribution_amount) : 0;
+  const pending     = Math.max(ev.member_count - paid, 0);
+  const netBalance  = (ev.total_collected || 0) - (ev.total_expenses || 0);
+  const pctClass    = getProgressClass(pct);
+
+  const statusBadge = {
+    active:    '<span class="ev-status-badge ev-status-active">🟢 Active</span>',
+    upcoming:  '<span class="ev-status-badge ev-status-upcoming">📅 Upcoming</span>',
+    completed: '<span class="ev-status-badge ev-status-completed">🔵 Completed</span>',
+  }[status] || '';
+
+  const typeBadge = isFlexible
+    ? '<span class="ev-type-badge ev-type-flexible">🌱 Flexible</span>'
+    : '<span class="ev-type-badge ev-type-fixed">📌 Fixed</span>';
+
+  document.getElementById('evDrawerBadges').innerHTML = typeBadge + statusBadge;
+
+  const mgmtBtns = isManagementRole(currentUser) ? `
+    <button class="btn btn-outline btn-sm" onclick="editEvent(${ev.id});closeEventDrawer()">✏️ Edit</button>
+    <button class="btn btn-rose btn-sm" onclick="deleteEvent(${ev.id})">🗑️ Delete</button>
+  ` : '';
+
+  document.getElementById('evDrawerBody').innerHTML = `
+    <!-- Quick Actions -->
+    <div class="ev-drawer-section">
+      <div class="ev-drawer-section-title">Quick Actions</div>
+      <div class="ev-drawer-actions">
+        <button class="btn btn-sm" onclick="viewEventPendingMembers(${ev.id})">👥 Pending Members</button>
+        <button class="btn btn-outline btn-sm btn-emerald" onclick="openEventReport(${ev.id})">📊 Report</button>
+        ${mgmtBtns}
+      </div>
+    </div>
+
+    <!-- Collection Summary -->
+    <div class="ev-drawer-section">
+      <div class="ev-drawer-section-title">Collection Summary</div>
+      <div class="ev-drawer-metrics-grid">
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val" style="color:#93C5FD;">${formatINR(ev.total_expected)}</div>
+          <div class="ev-drawer-metric-lbl">Expected</div>
+        </div>
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val" style="color:#4ADE80;">${formatINR(ev.total_collected)}</div>
+          <div class="ev-drawer-metric-lbl">Collected</div>
+        </div>
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val" style="color:#F87171;">${formatINR(ev.total_pending)}</div>
+          <div class="ev-drawer-metric-lbl">Outstanding</div>
+        </div>
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val">${pct}%</div>
+          <div class="ev-drawer-metric-lbl">Collection %</div>
+        </div>
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val">${paid}</div>
+          <div class="ev-drawer-metric-lbl">Paid Members</div>
+        </div>
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val" style="color:#F87171;">${pending}</div>
+          <div class="ev-drawer-metric-lbl">Pending Members</div>
+        </div>
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val" style="color:#FCD34D;">${formatINR(ev.total_expenses)}</div>
+          <div class="ev-drawer-metric-lbl">Expenses</div>
+        </div>
+        <div class="ev-drawer-metric">
+          <div class="ev-drawer-metric-val" style="color:${netBalance >= 0 ? '#4ADE80' : '#F87171'};">${formatINR(netBalance)}</div>
+          <div class="ev-drawer-metric-lbl">Net Balance</div>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div style="margin-top:14px;">
+        <div class="event-progress-row" style="margin-bottom:6px;">
+          <span class="event-progress-label">Progress</span>
+          <span class="event-progress-pct">${pct}%</span>
+        </div>
+        <div class="event-progress-bar">
+          <div class="event-progress-fill ${pctClass}" style="width:${pct}%"></div>
+        </div>
+        <div class="event-progress-amounts" style="margin-top:5px;">${formatINR(ev.total_collected)} of ${formatINR(ev.total_expected)}</div>
+      </div>
+    </div>
+
+    <!-- Event Details -->
+    <div class="ev-drawer-section">
+      <div class="ev-drawer-section-title">Event Details</div>
+      <div class="ev-drawer-kv"><span class="ev-drawer-key">Event Date</span><span class="ev-drawer-val">${formatDate(ev.event_date)}</span></div>
+      <div class="ev-drawer-kv"><span class="ev-drawer-key">Contribution Type</span><span class="ev-drawer-val">${isFlexible ? '🌱 Flexible' : '📌 Fixed'}</span></div>
+      <div class="ev-drawer-kv"><span class="ev-drawer-key">Amount Per Member</span><span class="ev-drawer-val">${isFlexible ? '—' : formatINR(ev.contribution_amount)}</span></div>
+      <div class="ev-drawer-kv"><span class="ev-drawer-key">Total Members</span><span class="ev-drawer-val">${ev.member_count} assigned</span></div>
+      ${ev.description ? `<div class="ev-drawer-kv" style="flex-direction:column;align-items:flex-start;gap:6px;"><span class="ev-drawer-key">Description</span><span class="ev-drawer-val" style="text-align:left;font-size:0.82rem;line-height:1.5;">${ev.description}</span></div>` : ''}
+    </div>
+  `;
+
+  panel.classList.add('open');
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeEventDrawer() {
+  const panel   = document.getElementById('eventDrawerPanel');
+  const overlay = document.getElementById('eventDrawerOverlay');
+  if (panel)   panel.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Close drawer on ESC
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeEventDrawer();
+    closeAllEventDropdowns();
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+// LOAD EVENTS DATA (main entry point)
+// ══════════════════════════════════════════════════════════════
 async function loadEventsData() {
   try {
     const res = await fetch('/api/events');
     eventsList = await res.json();
     window.eventsList = eventsList;
 
-    const tbody = document.getElementById('eventsTableBody');
-    tbody.innerHTML = eventsList.map(e => `
-      <tr>
-        <td><strong>${e.title}</strong></td>
-        <td>${formatDate(e.event_date)}</td>
-        <td>
-          ${(e.contribution_type === 'flexible' || !Number(e.contribution_amount))
-            ? '<span class="badge" style="background: rgba(37,99,235,0.15); color: #60A5FA; padding: 4px 8px; border-radius: 6px; font-weight: 500;">🌱 Flexible Drive</span>'
-            : `<strong class="text-gold">${formatINR(e.contribution_amount)}</strong>`
-          }
-        </td>
-        <td>${e.member_count} Members</td>
-        <td>${formatINR(e.total_expected)}</td>
-        <td class="text-emerald">${formatINR(e.total_collected)}</td>
-        <td class="text-rose">${formatINR(e.total_expenses)}</td>
-        <td>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
-            <button class="btn btn-outline btn-sm" onclick="viewEventPendingMembers(${e.id})">👥 Pending List</button>
-            <button class="btn btn-outline btn-sm" onclick="openEventReport(${e.id})">📊 Report</button>
-            ${isManagementRole(currentUser) ? `
-              <button class="btn btn-outline btn-sm" onclick="editEvent(${e.id})">✏️ Edit</button>
-              <button class="btn btn-rose btn-sm" onclick="deleteEvent(${e.id})">🗑️ Delete</button>
-            ` : ''}
-          </div>
-        </td>
-      </tr>
-    `).join('') || '<tr><td colspan="8" style="text-align: center;">No events created yet.</td></tr>';
-
+    updateEventMetrics();
+    updateEventChipCounts();
+    renderEventCards();
     populateEventDropdowns();
   } catch (err) {
     console.error('Events load error:', err);
   }
 }
 
+
+
 function populateEventDropdowns() {
   // Populate checklist of events for Transactions
   const checklist = document.getElementById('txEventsCheckboxList');
   if (checklist) {
-    checklist.innerHTML = eventsList.map(e => `
-      <label style="display: flex; align-items: center; gap: 8px; font-weight: normal; cursor: pointer; color: var(--text-primary); padding: 4px; border-radius: 4px; transition: background 0.2s;">
-        <input type="checkbox" name="txEventIds" value="${e.id}" data-title="${e.title}" data-amount="${e.contribution_amount || 0}" onchange="onTxEventCheckboxChange()" style="width: auto; margin: 0;">
-        <span>${e.title} (${formatDate(e.event_date)})</span>
-      </label>
-    `).join('') || '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 4px;">No events available.</div>';
+    checklist.innerHTML = eventsList.map(e => {
+      const isFixed = (e.contribution_type !== 'flexible' && (parseFloat(e.contribution_amount) || 0) > 0);
+      const badgeHtml = isFixed
+        ? `<span style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; border: 1px solid rgba(59, 130, 246, 0.3);">Fixed (₹${e.contribution_amount})</span>`
+        : `<span style="background: rgba(245, 158, 11, 0.15); color: #fbbf24; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; border: 1px solid rgba(245, 158, 11, 0.3);">Flexible</span>`;
+      return `
+        <label style="display: flex; align-items: center; justify-content: space-between; font-weight: normal; cursor: pointer; color: var(--text-primary); padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.02); margin-bottom: 2px; border: 1px solid rgba(255, 255, 255, 0.04); transition: background 0.2s;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <input type="checkbox" name="txEventIds" value="${e.id}" data-title="${e.title}" data-type="${isFixed ? 'fixed' : 'flexible'}" data-amount="${e.contribution_amount || 0}" onchange="onTxEventCheckboxChange(event)" style="width: auto; margin: 0;">
+            <span>${e.title} (${formatDate(e.event_date)})</span>
+          </div>
+          ${badgeHtml}
+        </label>
+      `;
+    }).join('') || '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 4px;">No events available.</div>';
   }
 
   // Keep dropdown list for other selects
@@ -1500,6 +2496,23 @@ function toggleTxTypeFields() {
   }
 }
 
+// Fetch next receipt number preview for selected transaction date
+async function fetchNextReceiptNo() {
+  const dateInput = document.getElementById('txDate');
+  const receiptNoInput = document.getElementById('txReceiptNo');
+  if (!dateInput || !receiptNoInput) return;
+  const dateVal = dateInput.value || new Date().toISOString().slice(0, 10);
+  try {
+    const res = await fetch(`/api/transactions/next-receipt-no?date=${encodeURIComponent(dateVal)}`);
+    const data = await res.json();
+    if (data && data.receiptNo) {
+      receiptNoInput.value = data.receiptNo;
+    }
+  } catch (err) {
+    console.error('Failed to fetch next receipt number:', err);
+  }
+}
+
 // Handle event selection mode toggle (Single / Multiple)
 function handleEventModeChange() {
   const mode = document.querySelector('input[name="txEventMode"]:checked')?.value || 'single';
@@ -1514,6 +2527,8 @@ function handleEventModeChange() {
     document.getElementById('txSingleAmountGroup').style.display = 'block';
     document.getElementById('txAmount').required = true;
     document.getElementById('txPerEventAmountsList').innerHTML = '';
+    const amountInput = document.getElementById('txAmount');
+    if (amountInput) amountInput.placeholder = 'e.g. 1000';
   } else {
     if (label) label.textContent = 'Select Events *';
     document.getElementById('txSingleAmountGroup').style.display = 'none';
@@ -1523,17 +2538,37 @@ function handleEventModeChange() {
 }
 
 // Enforce single-select when in single mode; build per-event amounts in multiple mode
-function onTxEventCheckboxChange() {
+function onTxEventCheckboxChange(evt) {
   const mode = document.querySelector('input[name="txEventMode"]:checked')?.value || 'single';
 
   if (mode === 'single') {
-    // Allow only one checkbox to be selected at a time
     const checkboxes = document.querySelectorAll('input[name="txEventIds"]');
-    const justChecked = event.target;
+    const justChecked = (evt && evt.target && evt.target.name === 'txEventIds') ? evt.target : null;
+
     if (justChecked && justChecked.checked) {
       checkboxes.forEach(cb => {
         if (cb !== justChecked) cb.checked = false;
       });
+    }
+
+    const selectedCb = document.querySelector('input[name="txEventIds"]:checked');
+    const amountInput = document.getElementById('txAmount');
+
+    if (amountInput) {
+      if (selectedCb) {
+        const type = selectedCb.dataset.type || 'fixed';
+        const amt = parseFloat(selectedCb.dataset.amount) || 0;
+
+        if (type === 'fixed' && amt > 0) {
+          amountInput.value = amt;
+          amountInput.placeholder = `₹${amt} (Auto-filled)`;
+        } else {
+          amountInput.value = '';
+          amountInput.placeholder = 'Enter Amount';
+        }
+      } else {
+        amountInput.placeholder = 'e.g. 1000';
+      }
     }
     return;
   }
@@ -1542,6 +2577,8 @@ function onTxEventCheckboxChange() {
   const selectedCbs = document.querySelectorAll('input[name="txEventIds"]:checked');
   const container = document.getElementById('txPerEventAmountsList');
   const perEventSection = document.getElementById('txPerEventAmounts');
+
+  if (!container || !perEventSection) return;
 
   if (selectedCbs.length === 0) {
     perEventSection.style.display = 'none';
@@ -1554,19 +2591,35 @@ function onTxEventCheckboxChange() {
   container.innerHTML = Array.from(selectedCbs).map(cb => {
     const eventId = cb.value;
     const title = cb.dataset.title || 'Event';
-    const suggestedAmt = cb.dataset.amount || '';
-    // Preserve existing value if already entered
+    const type = cb.dataset.type || 'fixed';
+    const fixedAmt = parseFloat(cb.dataset.amount) || 0;
+
     const existingInput = document.getElementById(`txEventAmt_${eventId}`);
-    const currentVal = existingInput ? existingInput.value : suggestedAmt;
+    let currentVal = existingInput ? existingInput.value : '';
+
+    // Auto-fill fixed amount if value is empty
+    if (currentVal === '' && type === 'fixed' && fixedAmt > 0) {
+      currentVal = fixedAmt;
+    }
+
+    const badgeHtml = type === 'fixed'
+      ? `<span style="font-size: 0.72rem; color: #60a5fa; background: rgba(59, 130, 246, 0.12); padding: 2px 6px; border-radius: 4px; font-weight: 600;">Fixed (₹${fixedAmt})</span>`
+      : `<span style="font-size: 0.72rem; color: #fbbf24; background: rgba(245, 158, 11, 0.12); padding: 2px 6px; border-radius: 4px; font-weight: 600;">Flexible</span>`;
+
+    const placeholderText = type === 'fixed' ? fixedAmt : 'Enter Amount';
+
     return `
-      <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);">
-        <span style="flex: 1; font-size: 0.9rem; color: var(--text-primary); font-weight: 500;" title="${title}">🎫 ${title}</span>
-        <div style="position: relative; width: 130px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);">
+        <div style="display: flex; flex-direction: column; gap: 2px; flex: 1;">
+          <span style="font-size: 0.88rem; color: var(--text-primary); font-weight: 500;" title="${title}">🎫 ${title}</span>
+          <div>${badgeHtml}</div>
+        </div>
+        <div style="position: relative; width: 140px;">
           <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.85rem;">₹</span>
-          <input type="number" step="0.01" min="0.01" id="txEventAmt_${eventId}" data-event-id="${eventId}"
+          <input type="number" step="0.01" min="0.01" id="txEventAmt_${eventId}" data-event-id="${eventId}" data-type="${type}"
             class="form-control tx-per-event-amt" value="${currentVal}"
             oninput="updatePerEventTotal()"
-            style="padding-left: 28px; text-align: right; font-weight: 600;" required placeholder="0.00">
+            style="padding-left: 28px; text-align: right; font-weight: 600;" required placeholder="${placeholderText}">
         </div>
       </div>
     `;
@@ -1579,12 +2632,26 @@ function onTxEventCheckboxChange() {
 function updatePerEventTotal() {
   const inputs = document.querySelectorAll('.tx-per-event-amt');
   let total = 0;
+  let hasFlexibleEmpty = false;
+
   inputs.forEach(inp => {
     const v = parseFloat(inp.value);
-    if (!isNaN(v)) total += v;
+    const type = inp.dataset.type;
+    if (!isNaN(v) && v > 0) {
+      total += v;
+    } else if (type === 'flexible') {
+      hasFlexibleEmpty = true;
+    }
   });
+
   const totalEl = document.getElementById('txPerEventTotal');
-  if (totalEl) totalEl.textContent = formatINR(total);
+  if (totalEl) {
+    if (total > 0 && hasFlexibleEmpty) {
+      totalEl.textContent = formatINR(total) + ' + Manual Amount';
+    } else {
+      totalEl.textContent = formatINR(total);
+    }
+  }
 }
 
 async function saveTransaction(e) {
@@ -1626,6 +2693,10 @@ async function saveTransaction(e) {
     amount = total;
   } else {
     amount = document.getElementById('txAmount').value;
+    if (!amount || parseFloat(amount) <= 0) {
+      showToast('Please enter a valid positive amount.', 'error');
+      return;
+    }
   }
 
   const payment_mode = document.getElementById('txMode').value;
@@ -2601,7 +3672,7 @@ function payEventDueForMember(memberId, eventId, dueId, pendingAmount) {
 }
 
 function openTransactionModal(prefill = null) {
-  document.getElementById('txDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('txDate').value = (prefill && prefill.created_at) ? prefill.created_at : new Date().toISOString().slice(0, 10);
   const singleRadio = document.querySelector('input[name="txEventMode"][value="single"]');
   if (singleRadio) singleRadio.checked = true;
   handleEventModeChange();
@@ -2610,6 +3681,8 @@ function openTransactionModal(prefill = null) {
   if (!prefill && txMemberSearchInstance) {
     txMemberSearchInstance.clearSelection();
   }
+
+  fetchNextReceiptNo();
 
   openModal('transactionModal');
 
@@ -2629,14 +3702,15 @@ function openTransactionModal(prefill = null) {
     if (prefill.dueId) {
       document.getElementById('txDueId').value = prefill.dueId;
     }
-    if (prefill.amount) {
-      document.getElementById('txAmount').value = prefill.amount;
-    }
     if (prefill.eventId) {
       const checkboxes = document.querySelectorAll('input[name="txEventIds"]');
       checkboxes.forEach(cb => {
         cb.checked = (String(cb.value) === String(prefill.eventId));
       });
+      onTxEventCheckboxChange();
+    }
+    if (prefill.amount) {
+      document.getElementById('txAmount').value = prefill.amount;
     }
   }
 }

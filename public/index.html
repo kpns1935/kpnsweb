@@ -275,62 +275,109 @@
       <div class="section-header">
         <h2 class="section-title">👥 Organization Members</h2>
         <div id="memberActionButtonsGroup" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-          <button id="downloadTemplateBtn" class="btn btn-outline btn-sm" onclick="downloadSampleExcelTemplate()">📥 Download Template</button>
-          <button id="bulkUploadBtn" class="btn btn-emerald btn-sm" onclick="openModal('excelUploadModal')">📊 Bulk Upload</button>
-          <button class="btn btn-outline btn-sm" onclick="exportMembersList()">📤 Export Members</button>
-          <button id="seedSampleBtn" class="btn btn-outline btn-sm" onclick="seedSampleMembers()">🌱 Seed Sample 50</button>
           <button class="btn btn-sm" onclick="showAddMemberModal()">+ Add Member</button>
+          <button id="bulkUploadBtn" class="btn btn-emerald btn-sm" onclick="openModal('excelUploadModal')">📊 Bulk Upload</button>
+          <button class="btn btn-outline btn-sm" onclick="exportMembersList()">📤 Export</button>
+          <button id="downloadTemplateBtn" class="btn btn-outline btn-sm" onclick="downloadSampleExcelTemplate()">📥 Template</button>
+          <button id="seedSampleBtn" class="btn btn-outline btn-sm" onclick="seedSampleMembers()">🌱 Seed Sample 50</button>
         </div>
       </div>
 
-      <!-- ── Global Member Search Bar ─────────────────────────── -->
-      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; padding: 14px 16px;
-                  background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); border-radius: 12px;">
-        <!-- Search Input -->
-        <div style="position: relative; flex: 1; min-width: 220px;">
-          <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:1rem;pointer-events:none;color:var(--text-muted);">🔍</span>
-          <input
-            type="text"
-            id="memberSearchInput"
-            class="form-control"
-            placeholder="Search by ID, Name, Mobile, Email, Aadhaar..."
-            oninput="filterMembersTable()"
-            style="padding-left: 38px; border-radius: 8px;"
-          />
+      <!-- ── Executive Summary Metrics Bar ───────────────────── -->
+      <div class="member-metrics-summary">
+        <div class="member-metric-card">
+          <div class="member-metric-icon" style="background: rgba(37,99,235,0.15); color: #60A5FA;">👥</div>
+          <div class="member-metric-info">
+            <span class="member-metric-label">Total Members</span>
+            <span class="member-metric-val" id="mMetricTotalCount">0</span>
+          </div>
         </div>
-
-        <!-- Status Filter -->
-        <div style="display:flex;gap:6px;flex-shrink:0;">
-          <button id="mFilterAll"      class="btn btn-sm"             onclick="setMemberStatusFilter('all')"      style="font-size:0.8rem;">All</button>
-          <button id="mFilterActive"   class="btn btn-outline btn-sm" onclick="setMemberStatusFilter('active')"   style="font-size:0.8rem;color:#34D399;border-color:rgba(52,211,153,0.4);">✅ Active</button>
-          <button id="mFilterInactive" class="btn btn-outline btn-sm" onclick="setMemberStatusFilter('inactive')" style="font-size:0.8rem;color:#F87171;border-color:rgba(248,113,113,0.4);">❌ Inactive</button>
+        <div class="member-metric-card">
+          <div class="member-metric-icon" style="background: rgba(34,197,94,0.15); color: #34D399;">🟢</div>
+          <div class="member-metric-info">
+            <span class="member-metric-label">Active Members</span>
+            <span class="member-metric-val" id="mMetricActiveCount">0</span>
+          </div>
         </div>
-
-        <!-- Result Count -->
-        <div id="memberSearchCount" style="font-size:0.82rem;color:var(--text-muted);flex-shrink:0;white-space:nowrap;"></div>
-
-        <!-- Clear Button -->
-        <button id="memberSearchClearBtn" onclick="clearMemberSearch()"
-                class="btn btn-outline btn-sm" style="display:none;font-size:0.8rem;" title="Clear search">✕ Clear</button>
+        <div class="member-metric-card">
+          <div class="member-metric-icon" style="background: rgba(239,68,68,0.15); color: #F87171;">🔴</div>
+          <div class="member-metric-info">
+            <span class="member-metric-label">Inactive Members</span>
+            <span class="member-metric-val" id="mMetricInactiveCount">0</span>
+          </div>
+        </div>
+        <div class="member-metric-card">
+          <div class="member-metric-icon" style="background: rgba(245,158,11,0.15); color: #FBBF24;">💰</div>
+          <div class="member-metric-info">
+            <span class="member-metric-label">Outstanding Dues</span>
+            <span class="member-metric-val text-rose" id="mMetricTotalDues">₹0</span>
+          </div>
+        </div>
       </div>
 
+      <!-- ── Toolbar: Search, Filter Chips & Sort ────────────── -->
+      <div class="member-toolbar-container">
+        <div class="member-toolbar-top">
+          <!-- Search Box -->
+          <div class="member-search-box">
+            <span class="member-search-icon">🔍</span>
+            <input
+              type="text"
+              id="memberSearchInput"
+              placeholder="Search by Member ID, Name, Mobile, Email, Aadhaar..."
+              oninput="filterMembersTable()"
+            />
+          </div>
+
+          <!-- Sort Select -->
+          <div class="sort-select-wrapper">
+            <label for="memberSortSelect">Sort:</label>
+            <select id="memberSortSelect" onchange="setMemberSort(this.value)">
+              <option value="name">Name (A-Z)</option>
+              <option value="code">Member ID</option>
+              <option value="due_desc">Outstanding (High to Low)</option>
+              <option value="date_desc">Admission (Newest)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Filter Chips Row -->
+        <div class="filter-chips-row">
+          <div id="mChipAll" class="filter-chip active" onclick="setMemberStatusFilter('all')">
+            All <span class="filter-chip-count" id="mCountAll">0</span>
+          </div>
+          <div id="mChipActive" class="filter-chip" onclick="setMemberStatusFilter('active')">
+            🟢 Active <span class="filter-chip-count" id="mCountActive">0</span>
+          </div>
+          <div id="mChipInactive" class="filter-chip" onclick="setMemberStatusFilter('inactive')">
+            🔴 Inactive <span class="filter-chip-count" id="mCountInactive">0</span>
+          </div>
+          <div id="mChipOutstanding" class="filter-chip" onclick="setMemberStatusFilter('outstanding')">
+            ⚠️ Outstanding <span class="filter-chip-count" id="mCountOutstanding">0</span>
+          </div>
+          <div id="mChipNoDue" class="filter-chip" onclick="setMemberStatusFilter('nodue')">
+            ✓ No Due <span class="filter-chip-count" id="mCountNoDue">0</span>
+          </div>
+
+          <!-- Clear Search Trigger -->
+          <button id="memberSearchClearBtn" onclick="clearMemberSearch()"
+                  class="btn btn-outline btn-sm" style="display:none;margin-left:auto;font-size:0.78rem;">✕ Clear</button>
+        </div>
+      </div>
+
+      <!-- ── Desktop Compact Table Layout ────────────────────── -->
       <div class="table-responsive">
-        <table>
+        <table class="member-table-compact">
           <thead>
             <tr>
-              <th>Form No</th>
-              <th>Member ID</th>
-              <th>Register Member</th>
-              <th>Father Name</th>
-              <th>Admission Date</th>
-              <th>Mobile No</th>
-              <th>Aadhaar Number</th>
-              <th>Blood Group</th>
-              <th>Alt Mobile</th>
-              <th>DOB</th>
+              <th style="width: 40px; text-align: center;">
+                <input type="checkbox" id="selectAllMembersCb" onchange="toggleSelectAllMembers(this.checked)" style="accent-color: var(--accent-primary); cursor: pointer;" title="Select All">
+              </th>
+              <th>Member</th>
+              <th>Contact</th>
               <th>Status</th>
-              <th>Pending Dues</th>
-              <th>Actions</th>
+              <th>Outstanding</th>
+              <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody id="membersTableBody">
@@ -338,36 +385,169 @@
           </tbody>
         </table>
       </div>
+
+      <!-- ── Mobile Member Cards Grid ────────────────────────── -->
+      <div id="membersCardGrid" class="members-card-grid">
+        <!-- Rendered dynamically on mobile -->
+      </div>
+
+      <!-- ── Pagination Footer Controls ──────────────────────── -->
+      <div class="member-pagination-bar">
+        <div style="font-size: 0.84rem; color: var(--text-muted);" id="memberPaginationInfo">
+          Showing 0–0 of 0 members
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-muted);">
+            <span>Rows:</span>
+            <select id="memberRowsPerPageSelect" onchange="changeMemberRowsPerPage(this.value)" style="padding: 4px 8px; border-radius: 6px; background: rgba(30,41,59,0.6); border: 1px solid var(--glass-border); color: var(--text-primary); cursor: pointer;">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
+          <div class="pagination-controls" id="memberPaginationButtons">
+            <!-- Loaded via JS -->
+          </div>
+        </div>
+      </div>
     </section>
+
 
 
     <!-- EVENTS TAB -->
     <section id="events" class="tab-content">
-      <div class="section-header">
-        <h2 class="section-title">🎯 Events & Member Contributions</h2>
-        <button class="btn" onclick="openModal('eventModal')">+ Create Event & Impose Contribution</button>
+
+      <!-- ── Summary Metrics Bar ──────────────────────────────── -->
+      <div class="event-metrics-summary" id="eventSummaryBar">
+        <div class="event-metric-card" data-filter="all" onclick="setEventFilter('all')">
+          <div class="event-metric-icon">🎯</div>
+          <div class="event-metric-value" id="evMetricTotal">0</div>
+          <div class="event-metric-label">Total Events</div>
+        </div>
+        <div class="event-metric-card" data-filter="active" onclick="setEventFilter('active')">
+          <div class="event-metric-icon">🟢</div>
+          <div class="event-metric-value" id="evMetricActive">0</div>
+          <div class="event-metric-label">Active Events</div>
+        </div>
+        <div class="event-metric-card" data-filter="upcoming" onclick="setEventFilter('upcoming')">
+          <div class="event-metric-icon">📅</div>
+          <div class="event-metric-value" id="evMetricUpcoming">0</div>
+          <div class="event-metric-label">Upcoming</div>
+        </div>
+        <div class="event-metric-card">
+          <div class="event-metric-icon">💰</div>
+          <div class="event-metric-value" id="evMetricExpected">₹0</div>
+          <div class="event-metric-label">Expected</div>
+        </div>
+        <div class="event-metric-card">
+          <div class="event-metric-icon">💵</div>
+          <div class="event-metric-value" id="evMetricCollected">₹0</div>
+          <div class="event-metric-label">Collected</div>
+        </div>
+        <div class="event-metric-card">
+          <div class="event-metric-icon">⚠️</div>
+          <div class="event-metric-value" id="evMetricOutstanding">₹0</div>
+          <div class="event-metric-label">Outstanding</div>
+        </div>
       </div>
 
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Event Name</th>
-              <th>Date</th>
-              <th>Contribution Per Member</th>
-              <th>Members Count</th>
-              <th>Expected Collection</th>
-              <th>Collected</th>
-              <th>Expenses</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="eventsTableBody">
-            <!-- Loaded via JS -->
-          </tbody>
-        </table>
+      <!-- ── Toolbar ──────────────────────────────────────────── -->
+      <div class="event-toolbar-container">
+        <div class="event-toolbar-actions">
+          <button class="btn btn-sm" onclick="openModal('eventModal')" id="evBtnNewEvent">+ New Event</button>
+          <button class="btn btn-outline btn-sm" onclick="exportEventsData()" id="evBtnExport">📤 Export</button>
+          <div style="position:relative;">
+            <button class="btn btn-outline btn-sm" onclick="toggleEventBulkMenu()" id="evBtnBulkActions">Bulk Actions ▾</button>
+            <div class="event-dropdown-menu" id="eventBulkDropdown">
+              <div class="dropdown-item" onclick="executeBulkEventAction('export')">📤 Export Selected</div>
+              <div class="dropdown-item" onclick="executeBulkEventAction('archive')">📦 Archive Selected</div>
+              <div class="dropdown-item text-rose" onclick="executeBulkEventAction('delete')">🗑️ Delete Selected</div>
+            </div>
+          </div>
+        </div>
+        <div class="event-search-sort">
+          <div class="member-search-box" style="min-width:220px;">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="eventSearchInput" placeholder="Search events…"
+                   oninput="onEventSearchInput(this.value)" autocomplete="off">
+          </div>
+          <select id="eventSortSelect" onchange="setEventSort(this.value)"
+            style="padding:8px 12px;border-radius:8px;background:rgba(30,41,59,0.7);border:1px solid var(--glass-border);color:var(--text-primary);cursor:pointer;font-size:0.85rem;">
+            <option value="date_desc">Newest First</option>
+            <option value="date_asc">Oldest First</option>
+            <option value="name">Name A–Z</option>
+            <option value="outstanding_desc">Outstanding ↓</option>
+            <option value="progress">Progress %</option>
+          </select>
+        </div>
       </div>
+
+      <!-- ── Filter Chips ─────────────────────────────────────── -->
+      <div class="filter-chips-row" id="eventFilterChipsRow">
+        <div id="evChipAll"       class="filter-chip active"    onclick="setEventFilter('all')">All <span class="filter-chip-count" id="evCountAll">0</span></div>
+        <div id="evChipActive"    class="filter-chip"           onclick="setEventFilter('active')">🟢 Active <span class="filter-chip-count" id="evCountActive">0</span></div>
+        <div id="evChipUpcoming"  class="filter-chip"           onclick="setEventFilter('upcoming')">📅 Upcoming <span class="filter-chip-count" id="evCountUpcoming">0</span></div>
+        <div id="evChipCompleted" class="filter-chip"           onclick="setEventFilter('completed')">🔵 Completed <span class="filter-chip-count" id="evCountCompleted">0</span></div>
+        <div id="evChipFixed"     class="filter-chip"           onclick="setEventFilter('fixed')">📌 Fixed <span class="filter-chip-count" id="evCountFixed">0</span></div>
+        <div id="evChipFlexible"  class="filter-chip"           onclick="setEventFilter('flexible')">🌱 Flexible <span class="filter-chip-count" id="evCountFlexible">0</span></div>
+      </div>
+
+      <!-- ── Event Cards Container ────────────────────────────── -->
+      <div id="eventCardsContainer" class="event-cards-grid">
+        <!-- Rendered by JS -->
+      </div>
+
+      <!-- ── Pagination Footer ─────────────────────────────────── -->
+      <div class="member-pagination-bar" id="eventPaginationBar">
+        <div style="font-size:0.84rem;color:var(--text-muted);" id="eventPaginationInfo">
+          Showing 0–0 of 0 events
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="display:flex;align-items:center;gap:6px;font-size:0.8rem;color:var(--text-muted);">
+            <span>Rows:</span>
+            <select id="eventRowsPerPageSelect" onchange="changeEventRowsPerPage(this.value)"
+              style="padding:4px 8px;border-radius:6px;background:rgba(30,41,59,0.6);border:1px solid var(--glass-border);color:var(--text-primary);cursor:pointer;">
+              <option value="8">8</option>
+              <option value="12" selected>12</option>
+              <option value="24">24</option>
+              <option value="100">All</option>
+            </select>
+          </div>
+          <div class="pagination-controls" id="eventPaginationButtons"></div>
+        </div>
+      </div>
+
+      <!-- ── Hidden tbody for backward compat (populateEventDropdowns) ── -->
+      <div style="display:none;"><table><tbody id="eventsTableBody"></tbody></table></div>
+
     </section>
+
+    <!-- ── Event Slide-In Drawer ─────────────────────────────────── -->
+    <div id="eventDrawerOverlay" class="event-drawer-overlay" onclick="closeEventDrawer()"></div>
+    <div id="eventDrawerPanel" class="event-drawer-panel">
+      <div class="event-drawer-header">
+        <div>
+          <div style="font-size:2rem;line-height:1;" id="evDrawerIcon">🎯</div>
+          <div>
+            <div class="event-drawer-title" id="evDrawerTitle">Event Title</div>
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;" id="evDrawerBadges"></div>
+          </div>
+        </div>
+        <button class="event-drawer-close" onclick="closeEventDrawer()">✕</button>
+      </div>
+      <div class="event-drawer-body" id="evDrawerBody">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+
+    <!-- ── Event Bulk Action Bar ──────────────────────────────────── -->
+    <div id="eventBulkActionBar" class="bulk-action-bar" style="display:none;">
+      <span id="eventBulkCount" style="font-weight:600;color:var(--text-primary);">0 selected</span>
+      <button class="btn btn-outline btn-sm" onclick="executeBulkEventAction('export')">📤 Export</button>
+      <button class="btn btn-rose btn-sm" onclick="executeBulkEventAction('delete')">🗑️ Delete</button>
+      <button class="btn btn-outline btn-sm" onclick="clearEventSelection()">✕ Clear</button>
+    </div>
 
     <!-- TRANSACTIONS & RECEIPTS TAB -->
     <section id="transactions" class="tab-content">
@@ -817,8 +997,16 @@
           </div>
 
           <div class="form-group">
+            <label>Receipt Number (Auto-Generated)</label>
+            <div style="position: relative;">
+              <input type="text" id="txReceiptNo" class="form-control" readonly style="background: rgba(255, 255, 255, 0.05); font-weight: 700; color: var(--accent-gold); cursor: not-allowed; letter-spacing: 0.5px;" placeholder="KPNS-MR-YYYY-XXX">
+              <span style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--text-muted); background: rgba(255, 255, 255, 0.08); padding: 2px 6px; border-radius: 4px;">Read-Only</span>
+            </div>
+          </div>
+
+          <div class="form-group">
             <label>Transaction Date *</label>
-            <input type="date" id="txDate" class="form-control" required>
+            <input type="date" id="txDate" class="form-control" required onchange="fetchNextReceiptNo()">
           </div>
 
           <div id="txMemberGroup" class="form-group">
@@ -1305,6 +1493,47 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MEMBER PROFILE SLIDE-IN DRAWER (Right Panel)
+  ══════════════════════════════════════════════════════════ -->
+  <div class="drawer-backdrop" id="memberDrawerBackdrop" onclick="closeMemberProfileDrawer()"></div>
+  <div class="profile-drawer-panel" id="memberProfileDrawer">
+    <div class="drawer-header">
+      <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+        👤 Member Profile
+      </h3>
+      <button class="close-btn" onclick="closeMemberProfileDrawer()">&times;</button>
+    </div>
+    <div class="drawer-body" id="memberDrawerBody">
+      <!-- Dynamically loaded via JS -->
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       FLOATING BULK SELECTION ACTION BAR
+  ══════════════════════════════════════════════════════════ -->
+  <div class="bulk-action-bar" id="memberBulkActionBar">
+    <span style="font-size: 0.88rem; font-weight: 700; color: #FFFFFF;" id="bulkSelectedCount">0 selected</span>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn btn-emerald btn-sm" onclick="executeBulkAction('impose')" title="Impose Event Contribution for selected members">
+        ⚡ Impose Event
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="executeBulkAction('activate')" title="Activate selected members">
+        🟢 Activate
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="executeBulkAction('deactivate')" title="Deactivate selected members">
+        🔴 Deactivate
+      </button>
+      <button class="btn btn-outline btn-sm" onclick="executeBulkAction('export')" title="Export selected members">
+        📤 Export
+      </button>
+      <button class="btn btn-rose btn-sm" onclick="executeBulkAction('delete')" title="Delete selected members">
+        🗑️ Delete
+      </button>
+    </div>
+    <button onclick="clearMemberSelections()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.1rem;" title="Deselect All">&times;</button>
   </div>
 
   <script src="js/member-search-select.js"></script>
